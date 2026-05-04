@@ -124,7 +124,13 @@ router.get("/auth/me", (req, res) => {
     res.status(401).json({ error: "User not found" });
     return;
   }
-  res.json(toPublic(user));
+  // Determine admin: plan==="admin" OR first registered user
+  const allUsers = readCollection<User>("users");
+  const sorted = [...allUsers].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+  const isAdmin = user.plan === "admin" || sorted[0]?.id === userId;
+  res.json({ ...toPublic(user), isAdmin });
 });
 
 export default router;

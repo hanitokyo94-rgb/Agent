@@ -4,6 +4,9 @@ import authRouter from "./auth.js";
 import userRouter from "./user.js";
 import projectsRouter from "./projects.js";
 import messagesRouter from "./messages.js";
+import adminRouter from "./admin.js";
+import workspaceRouter from "./workspace.js";
+import agentStreamRouter from "./agent-stream.js";
 
 const router: IRouter = Router();
 
@@ -12,5 +15,8 @@ router.use(authRouter);
 router.use(userRouter);
 router.use(projectsRouter);
 router.use(messagesRouter);
+router.use(adminRouter);
+router.use(workspaceRouter);
+router.use(agentStreamRouter);
 
 export default router;

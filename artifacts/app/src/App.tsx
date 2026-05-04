@@ -8,8 +8,9 @@ import { useGetMe, getGetMeQueryKey, setAuthTokenGetter } from "@workspace/api-c
 import { Auth } from "./pages/Auth";
 import { Onboarding } from "./pages/Onboarding";
 import { Dashboard } from "./pages/Dashboard";
-import { Chat } from "./pages/Chat";
+import { AgentChat } from "./pages/AgentChat";
 import { Settings } from "./pages/Settings";
+import { Admin } from "./pages/Admin";
 import NotFound from "@/pages/not-found";
 
 // Set token getter from localStorage
@@ -63,8 +64,9 @@ function Router() {
       <Route path="/" component={Auth} />
       <Route path="/onboarding" component={() => <ProtectedRoute component={Onboarding} />} />
       <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
-      <Route path="/chat/:projectId" component={() => <ProtectedRoute component={Chat} />} />
+      <Route path="/chat/:projectId" component={() => <ProtectedRoute component={AgentChat} />} />
       <Route path="/settings" component={() => <ProtectedRoute component={Settings} />} />
+      <Route path="/admin" component={() => <ProtectedRoute component={Admin} />} />
       <Route component={NotFound} />
     </Switch>
   );
