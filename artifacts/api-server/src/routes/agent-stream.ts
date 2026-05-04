@@ -9,6 +9,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { findById, findWhere, insertRecord, updateRecord, readCollection } from "../lib/storage.js";
 import { getWorkspaceDir, getProjectSecrets, listFilesRecursive } from "./workspace.js";
+import { deployToVercel } from "../lib/vercel-deploy.js";
 import type { User } from "./auth.js";
 
 const execAsync = promisify(exec);
@@ -138,59 +139,77 @@ const AGENT_TOOLS = [
       parameters: { type: "object", properties: {} },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "deploy_to_vercel",
+      description: "Deploy the project to Vercel and get a live public URL. Call this after the project is built and tested. It will create a unique URL and redeploy on the same project on subsequent calls.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
 ];
 
 function getAgentSystemPrompt(lang: string | null | undefined): string {
   const isArabic = lang === "ar" || lang?.startsWith("ar");
   if (isArabic) {
-    return `أنت وكيل ذكاء اصطناعي متقدم لبناء المشاريع البرمجية الكاملة. عندك صلاحيات كاملة لبناء وتشغيل البرامج.
+    return `أنت وكيل ذكاء اصطناعي خبير في بناء ونشر المشاريع البرمجية الكاملة. عندك صلاحيات كاملة.
 
-قدراتك الكاملة:
-- كتابة وقراءة وحذف الملفات في مساحة العمل
+قدراتك:
+- كتابة وقراءة الملفات في مساحة العمل
 - تشغيل أوامر shell مباشرة
 - تثبيت حزم npm
-- تشغيل المشروع
-- تصفح الإنترنت وجلب APIs
-- حفظ الـ secrets وبيانات البيئة
+- تشغيل المشروع محلياً
+- تصفح الإنترنت وجلب APIs والمستندات
+- حفظ secrets وبيانات البيئة
+- النشر التلقائي على Vercel والحصول على رابط حي
 
-قواعد البناء:
-1. دائماً ابدأ بـ package.json مع dependencies المطلوبة
-2. ملف الدخول الرئيسي: index.ts
-3. TypeScript فقط للـ backend
+قواعد البناء الصارمة:
+1. ابدأ دائماً بـ package.json مع جميع dependencies المطلوبة
+2. ملف الدخول الرئيسي: index.ts (TypeScript دائماً)
+3. Backend: TypeScript + Express/Fastify مع types كاملة
 4. Frontend: HTML/CSS/JS احترافي أو React مع Vite
-5. عند الانتهاء: شغّل run_project لتأكيد عمل المشروع
-6. اكتب كود حقيقي قابل للتشغيل - لا placeholders
+5. اكتب كود حقيقي قابل للتشغيل - بدون placeholders أو TODO
+6. بعد اكتمال البناء: شغّل run_project للتحقق
+7. بعد التأكيد: استخدم deploy_to_vercel للنشر التلقائي والحصول على رابط حي
+8. عند Redeploy: استخدم نفس أداة deploy_to_vercel وستحافظ على نفس الرابط
+
+ترتيب العمل المثالي:
+write_file (package.json) → write_file (الملفات) → install_packages → run_project → deploy_to_vercel
 
 أسلوبك:
-- ابدأ مباشرة بالكود بدون مقدمات طويلة
-- كل خطوة واضحة ومنطقية
-- أخبر المستخدم بما تفعله قبل كل أداة
-- عند اكتمال المشروع: اعرض ملخص الملفات والتعليمات`;
+- ابدأ مباشرة بدون مقدمات طويلة
+- أخبر المستخدم بكل خطوة بوضوح
+- عند الانتهاء: اعرض الرابط الحي وملخص الملفات`;
   }
 
-  return `You are an advanced AI agent with full permissions to build complete software projects.
+  return `You are an expert AI agent that builds and deploys complete software projects. You have full permissions.
 
 Your capabilities:
-- Write, read, and delete files in the project workspace
+- Write and read files in the project workspace
 - Execute shell commands directly
 - Install npm packages
-- Run the project
-- Browse the web and fetch APIs
+- Run the project locally to test it
+- Browse the web and fetch APIs/documentation
 - Manage secrets and environment variables
+- Deploy automatically to Vercel and get a live public URL
 
-Build rules:
-1. Always start with package.json including all required dependencies  
-2. Main entry file: index.ts (use TypeScript)
-3. Backend: TypeScript with proper types
+Strict build rules:
+1. Always start with package.json including ALL required dependencies
+2. Main entry file: index.ts (TypeScript always)
+3. Backend: TypeScript + Express/Fastify with proper types
 4. Frontend: Professional HTML/CSS/JS or React with Vite
-5. After completion: call run_project to verify it works
-6. Write real, executable code — no placeholders or "TODO" comments
+5. Write real, executable code — NO placeholders, NO "TODO", NO mock data
+6. After building: call run_project to verify it works
+7. After verification: call deploy_to_vercel to deploy and get a live URL
+8. On redeploy: use deploy_to_vercel again — it reuses the same Vercel project/URL
 
-Your style:
+Ideal workflow order:
+write_file (package.json) → write_file (files) → install_packages → run_project → deploy_to_vercel
+
+Style:
 - Start building immediately without lengthy introductions
-- Each step is clear and logical  
-- Tell the user what you're doing before each tool call
-- When project is complete: show a summary of files and instructions`;
+- Tell the user what you're doing at each step
+- When done: show the live URL prominently and a file summary`;
 }
 
 // ─── Execute tool ──────────────────────────────────────────────────
@@ -285,7 +304,6 @@ async function executeTool(
         if (fs.existsSync(path.join(wsDir, f))) { entry = f; break; }
       }
       const hasTsx = fs.existsSync(path.join(wsDir, "node_modules/.bin/tsx"));
-      const cmd = hasTsx ? `npx tsx ${entry} 2>&1; echo "Exit: $?"` : `node --input-type=module < ${entry} 2>&1; echo "Exit: $?"`;
       try {
         const { stdout, stderr } = await execAsync(
           hasTsx ? `timeout 20 npx tsx ${entry}` : `timeout 20 node ${entry}`,
@@ -295,6 +313,31 @@ async function executeTool(
       } catch (err: any) {
         const out = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
         return `Project output:\n${out || err.message}`;
+      }
+    }
+
+    case "deploy_to_vercel": {
+      const token = process.env.VERCEL_TOKEN;
+      if (!token) return "❌ VERCEL_TOKEN not configured. Ask the user to add it.";
+      try {
+        const project = findById<any>("projects", projectId);
+        const result = await deployToVercel(
+          token,
+          wsDir,
+          project?.name ?? "ai-project",
+          project?.vercelProjectId,
+          secrets
+        );
+        // Save deploy info
+        updateRecord("projects", projectId, {
+          vercelUrl: result.url,
+          vercelProjectId: result.projectId,
+          vercelProjectName: result.projectName,
+          lastDeployedAt: new Date().toISOString(),
+        });
+        return `✅ Deployed to Vercel!\n🔗 Live URL: ${result.url}\n📦 Project: ${result.projectName}\n📊 Status: ${result.readyState}`;
+      } catch (err: any) {
+        return `❌ Deploy failed: ${err.message}`;
       }
     }
 

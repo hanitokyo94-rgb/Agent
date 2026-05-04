@@ -7,6 +7,7 @@ import messagesRouter from "./messages.js";
 import adminRouter from "./admin.js";
 import workspaceRouter from "./workspace.js";
 import agentStreamRouter from "./agent-stream.js";
+import deployRouter from "./deploy.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(messagesRouter);
 router.use(adminRouter);
 router.use(workspaceRouter);
 router.use(agentStreamRouter);
+router.use(deployRouter);
 
 export default router;

@@ -32,11 +32,6 @@ interface ToolCall {
   result?: string;
 }
 
-interface ToolEvent {
-  msgId: string;
-  tool: ToolCall;
-}
-
 const TOOL_LABELS: Record<string, string> = {
   write_file: "Writing file",
   read_file: "Reading file",
@@ -44,8 +39,9 @@ const TOOL_LABELS: Record<string, string> = {
   run_command: "Running command",
   install_packages: "Installing packages",
   fetch_url: "Fetching URL",
-  set_secret: "Setting secret",
+  set_secret: "Storing secret",
   run_project: "Running project",
+  deploy_to_vercel: "Deploying to Vercel",
 };
 
 const TOOL_ICONS: Record<string, string> = {
@@ -56,7 +52,8 @@ const TOOL_ICONS: Record<string, string> = {
   install_packages: "📦",
   fetch_url: "🌐",
   set_secret: "🔐",
-  run_project: "🚀",
+  run_project: "▶️",
+  deploy_to_vercel: "🚀",
 };
 
 export function AgentChat() {
@@ -68,15 +65,16 @@ export function AgentChat() {
   const [streamingMessages, setStreamingMessages] = useState<StreamMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolEvents, setToolEvents] = useState<Record<string, ToolCall[]>>({});
-  const [activeToolMsg, setActiveToolMsg] = useState<string | null>(null);
   const [files, setFiles] = useState<FileEntry[]>([]);
-  const [showFiles, setShowFiles] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
   const [agentMode, setAgentMode] = useState(true);
   const [runOutput, setRunOutput] = useState<string | null>(null);
   const [runLoading, setRunLoading] = useState(false);
+  const [deployUrl, setDeployUrl] = useState<string | null>(null);
+  const [deploying, setDeploying] = useState(false);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [activeDeployBanner, setActiveDeployBanner] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -88,6 +86,11 @@ export function AgentChat() {
   const { data: savedMessages = [], isLoading } = useListMessages(projectId, {
     query: { queryKey: getListMessagesQueryKey(projectId) },
   });
+
+  // Load deploy info
+  useEffect(() => {
+    loadDeployInfo();
+  }, [projectId]);
 
   useEffect(() => {
     if (savedMessages.length > 0 && !isStreaming) {
@@ -106,11 +109,9 @@ export function AgentChat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [streamingMessages, toolEvents, activeToolMsg]);
+  }, [streamingMessages, toolEvents]);
 
-  useEffect(() => {
-    loadFiles();
-  }, [projectId]);
+  useEffect(() => { loadFiles(); }, [projectId]);
 
   async function loadFiles() {
     const token = localStorage.getItem("token");
@@ -123,6 +124,37 @@ export function AgentChat() {
         setFiles(data.files ?? []);
       }
     } catch {}
+  }
+
+  async function loadDeployInfo() {
+    const token = localStorage.getItem("token");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/deploy`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.vercelUrl) setDeployUrl(data.vercelUrl);
+      }
+    } catch {}
+  }
+
+  async function manualDeploy() {
+    setDeploying(true);
+    const token = localStorage.getItem("token");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/deploy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDeployUrl(data.url);
+        setActiveDeployBanner(data.url);
+      }
+    } catch {}
+    setDeploying(false);
   }
 
   async function runProject() {
@@ -162,7 +194,6 @@ export function AgentChat() {
     };
     setStreamingMessages((prev) => [...prev, userMsg]);
     setIsStreaming(true);
-    setActiveToolMsg(null);
 
     const token = localStorage.getItem("token");
     abortRef.current = new AbortController();
@@ -170,13 +201,11 @@ export function AgentChat() {
     const aiMsgId = `ai-${Date.now()}`;
     let aiContent = "";
 
-    // Add placeholder AI message
     setStreamingMessages((prev) => [
       ...prev,
       { id: aiMsgId, role: "assistant", content: "", streaming: true, createdAt: new Date().toISOString() },
     ]);
     setToolEvents((prev) => ({ ...prev, [aiMsgId]: [] }));
-    setActiveToolMsg(aiMsgId);
 
     const endpoint = agentMode
       ? `/api/projects/${projectId}/agent/stream`
@@ -197,6 +226,7 @@ export function AgentChat() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let eventType = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -206,69 +236,61 @@ export function AgentChat() {
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const dataStr = line.slice(6).trim();
-          if (!dataStr) continue;
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
 
-          try {
-            const data = JSON.parse(dataStr);
-
-            if (data.delta !== undefined) {
-              aiContent += data.delta;
-              setStreamingMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId ? { ...m, content: aiContent, streaming: true } : m
-                )
-              );
-            } else if (data.step !== undefined) {
-              // thinking step
-            } else if (data.name !== undefined && data.args !== undefined) {
-              // tool_call event
-              setToolEvents((prev) => ({
-                ...prev,
-                [aiMsgId]: [
-                  ...(prev[aiMsgId] ?? []),
-                  { name: data.name, args: data.args, status: "running" },
-                ],
-              }));
-            } else if (data.name !== undefined && data.result !== undefined) {
-              // tool_result event
-              setToolEvents((prev) => {
-                const tools = [...(prev[aiMsgId] ?? [])];
-                const idx = tools.findLastIndex((t) => t.name === data.name && t.status === "running");
-                if (idx !== -1) {
-                  tools[idx] = { ...tools[idx], status: "done", result: data.result };
-                }
-                return { ...prev, [aiMsgId]: tools };
-              });
-              loadFiles(); // Refresh files after tool use
-            } else if (data.role !== undefined) {
-              // done event
-              setStreamingMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId
-                    ? { ...m, id: data.id ?? aiMsgId, content: data.content ?? aiContent, streaming: false }
-                    : m
-                )
-              );
-            }
-          } catch {}
+              if (eventType === "chunk" && data.delta !== undefined) {
+                aiContent += data.delta;
+                setStreamingMessages((prev) =>
+                  prev.map((m) => m.id === aiMsgId ? { ...m, content: aiContent, streaming: true } : m)
+                );
+              } else if (eventType === "tool_call") {
+                setToolEvents((prev) => ({
+                  ...prev,
+                  [aiMsgId]: [...(prev[aiMsgId] ?? []), { name: data.name, args: data.args, status: "running" }],
+                }));
+              } else if (eventType === "tool_result") {
+                setToolEvents((prev) => {
+                  const tools = [...(prev[aiMsgId] ?? [])];
+                  const idx = tools.findLastIndex((t) => t.name === data.name && t.status === "running");
+                  if (idx !== -1) tools[idx] = { ...tools[idx], status: "done", result: data.result };
+                  return { ...prev, [aiMsgId]: tools };
+                });
+                loadFiles();
+              } else if (eventType === "deploy_done") {
+                setDeployUrl(data.url);
+                setActiveDeployBanner(data.url);
+              } else if (eventType === "done" && data.role !== undefined) {
+                setStreamingMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === aiMsgId
+                      ? { ...m, id: data.id ?? aiMsgId, content: data.content ?? aiContent, streaming: false }
+                      : m
+                  )
+                );
+              }
+            } catch {}
+            eventType = "";
+          }
         }
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
         setStreamingMessages((prev) =>
           prev.map((m) =>
-            m.id === aiMsgId
-              ? { ...m, content: "Error occurred. Please try again.", streaming: false }
-              : m
+            m.id === aiMsgId ? { ...m, content: "An error occurred. Please try again.", streaming: false } : m
           )
         );
       }
     } finally {
       setIsStreaming(false);
-      setActiveToolMsg(null);
       loadFiles();
+      loadDeployInfo();
       queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(projectId) });
       queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
     }
@@ -282,7 +304,7 @@ export function AgentChat() {
   }
 
   const fileCount = files.filter((f) => !f.isDir).length;
-  const displayMessages = streamingMessages.length > 0 ? streamingMessages : [];
+  const displayMessages = streamingMessages;
 
   return (
     <div className="flex h-[100dvh] bg-background overflow-hidden">
@@ -294,14 +316,11 @@ export function AgentChat() {
       </div>
 
       <div className="flex-1 flex min-w-0 overflow-hidden">
-        {/* Main chat area */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
           {/* Header */}
-          <div className="flex items-center gap-2 px-3 h-12 border-b border-border shrink-0">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="md:hidden p-1.5 rounded-lg hover:bg-muted transition-colors"
-            >
+          <div className="flex items-center gap-2 px-3 h-12 border-b border-border shrink-0 bg-background/95 backdrop-blur">
+            <button onClick={() => setSidebarOpen(true)} className="md:hidden p-1.5 rounded-lg hover:bg-muted transition-colors">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
               </svg>
@@ -311,78 +330,122 @@ export function AgentChat() {
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
             </button>
-            <p className="text-sm font-medium text-foreground truncate flex-1 min-w-0">{project?.name ?? "..."}</p>
+            <p className="text-sm font-medium truncate flex-1 min-w-0">{project?.name ?? "..."}</p>
 
-            {/* Toolbar */}
             <div className="flex items-center gap-1 shrink-0">
-              {/* Agent mode toggle */}
+              {/* Mode toggle */}
               <button
                 onClick={() => setAgentMode(!agentMode)}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  agentMode
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
+                  agentMode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"
                 )}
               >
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                  <path d="M7 11V7a5 5 0 0110 0v4"/>
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
                 </svg>
                 {agentMode ? "Agent" : "Chat"}
               </button>
 
-              {/* Run project */}
+              {/* Run */}
               {agentMode && fileCount > 0 && (
                 <button
                   onClick={runProject}
                   disabled={runLoading}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-green-500/10 text-green-600 hover:bg-green-500/20 transition-colors font-medium"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors font-medium"
                 >
-                  {runLoading ? (
-                    <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                    </svg>
-                  ) : "▶"}
+                  {runLoading
+                    ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    : <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  }
                   Run
                 </button>
+              )}
+
+              {/* Deploy */}
+              {agentMode && fileCount > 0 && (
+                <button
+                  onClick={manualDeploy}
+                  disabled={deploying}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-violet-500/10 text-violet-600 hover:bg-violet-500/20 transition-colors font-medium"
+                >
+                  {deploying
+                    ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    : "🚀"
+                  }
+                  {deployUrl ? "Redeploy" : "Deploy"}
+                </button>
+              )}
+
+              {/* Live URL badge */}
+              {deployUrl && (
+                <a
+                  href={deployUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors font-medium max-w-[140px]"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <span className="truncate">Live</span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                </a>
               )}
 
               {/* Files */}
               {agentMode && (
                 <button
                   onClick={() => setShowFileModal(true)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-muted hover:bg-muted/70 transition-colors font-medium"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-muted hover:bg-muted/70 transition-colors font-medium"
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                   </svg>
-                  Files {fileCount > 0 && <span className="bg-primary/20 text-primary px-1 rounded">{fileCount}</span>}
+                  {fileCount > 0 ? fileCount : "Files"}
                 </button>
               )}
 
               {/* Secrets */}
               {agentMode && (
-                <button
-                  onClick={() => setShowSecrets(true)}
-                  className="p-1.5 rounded-lg text-xs bg-muted hover:bg-muted/70 transition-colors"
-                  title="Secrets"
-                >
+                <button onClick={() => setShowSecrets(true)} className="p-1.5 rounded-lg bg-muted hover:bg-muted/70 transition-colors text-sm" title="Secrets">
                   🔐
                 </button>
               )}
             </div>
           </div>
 
+          {/* Deploy banner */}
+          {activeDeployBanner && (
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-200 dark:border-emerald-800 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-emerald-600 text-sm">🚀</span>
+                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Deployed successfully!</span>
+                <a
+                  href={activeDeployBanner}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-emerald-600 underline underline-offset-2 hover:text-emerald-500 truncate"
+                >
+                  {activeDeployBanner}
+                </a>
+              </div>
+              <button onClick={() => setActiveDeployBanner(null)} className="text-emerald-600/60 hover:text-emerald-600 shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          )}
+
           {/* Run output */}
           {runOutput !== null && (
             <div className="border-b border-border bg-gray-950 px-4 py-3 shrink-0">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-green-400 font-mono font-medium">▶ Output</span>
+                <span className="text-xs text-emerald-400 font-mono font-medium">▶ Output</span>
                 <button onClick={() => setRunOutput(null)} className="text-xs text-gray-500 hover:text-gray-300">✕</button>
               </div>
-              <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap max-h-40 overflow-y-auto">{runOutput}</pre>
+              <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap max-h-36 overflow-y-auto">{runOutput}</pre>
             </div>
           )}
 
@@ -401,24 +464,25 @@ export function AgentChat() {
               {displayMessages.length === 0 && !isLoading && (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-4">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                      <path d="M7 11V7a5 5 0 0110 0v4"/>
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
                     </svg>
                   </div>
                   <h3 className="text-base font-semibold mb-2">{project?.name ?? "Agent Builder"}</h3>
-                  <p className="text-sm text-muted-foreground max-w-sm">
+                  <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
                     {agentMode
-                      ? "Tell me what to build. The agent will create files, install packages, and run your project automatically."
-                      : "Start a conversation. Ask anything or describe what to build."}
+                      ? "Describe what to build. The agent writes code, installs packages, runs it, and deploys to a live Vercel URL automatically."
+                      : "Start a conversation with the AI."}
                   </p>
                   {agentMode && (
                     <div className="flex flex-wrap gap-2 mt-5 justify-center">
                       {[
-                        "Build a REST API with Express and TypeScript",
+                        "Build a REST API with Express + TypeScript",
                         "Create a Discord bot with slash commands",
+                        "Build a Telegram bot",
+                        "Make a web scraper with cheerio",
+                        "Create a React landing page",
                         "Build a CLI tool with commander.js",
-                        "Make a web scraper with puppeteer",
                       ].map((ex) => (
                         <button
                           key={ex}
@@ -453,13 +517,13 @@ export function AgentChat() {
             </div>
           </div>
 
-          {/* Input */}
-          <div className="border-t border-border px-4 py-3 shrink-0">
+          {/* Input area */}
+          <div className="border-t border-border px-4 py-3 shrink-0 bg-background">
             <div className="max-w-3xl mx-auto">
               {agentMode && (
                 <div className="flex items-center gap-1.5 mb-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                  <span className="text-xs text-primary font-medium">Agent Mode — Full build permissions</span>
+                  <span className="text-xs text-primary font-medium">Agent Mode — builds, runs & deploys automatically</span>
                 </div>
               )}
               <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-primary/20 transition-all">
@@ -469,19 +533,19 @@ export function AgentChat() {
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   placeholder={agentMode
-                    ? "Describe what to build... the agent will create files, install packages, and run it"
+                    ? "Describe what to build — the agent writes, runs, and deploys it..."
                     : "Ask anything..."}
                   rows={1}
                   disabled={isStreaming}
                   className="w-full px-4 py-3.5 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground disabled:opacity-60 max-h-48"
                 />
                 <div className="flex items-center justify-between px-3 py-2 border-t border-border/50">
-                  <span className="text-xs text-muted-foreground">⌘+Enter to send</span>
+                  <span className="text-xs text-muted-foreground hidden sm:block">⌘+Enter to send</span>
                   <button
                     onClick={isStreaming ? () => abortRef.current?.abort() : sendMessage}
                     disabled={!isStreaming && !input.trim()}
                     className={cn(
-                      "flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all",
+                      "flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ml-auto",
                       isStreaming
                         ? "bg-destructive text-destructive-foreground hover:opacity-90"
                         : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"
@@ -507,34 +571,36 @@ export function AgentChat() {
               <button onClick={() => setShowFileModal(true)} className="text-xs text-primary hover:underline">Open</button>
             </div>
             <div className="flex-1 overflow-y-auto py-1">
-              <FileTree
-                files={files}
-                onSelect={() => setShowFileModal(true)}
-              />
+              <FileTree files={files} onSelect={() => setShowFileModal(true)} />
             </div>
+            {deployUrl && (
+              <div className="border-t border-border p-3">
+                <a
+                  href={deployUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-emerald-600 hover:underline"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live on Vercel
+                </a>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Modals */}
       {showFileModal && (
-        <FileModal
-          projectId={projectId}
-          files={files}
-          onRefresh={loadFiles}
-          onClose={() => setShowFileModal(false)}
-        />
+        <FileModal projectId={projectId} files={files} onRefresh={loadFiles} onClose={() => setShowFileModal(false)} />
       )}
       {showSecrets && (
-        <SecretsPanel
-          projectId={projectId}
-          onClose={() => setShowSecrets(false)}
-        />
+        <SecretsPanel projectId={projectId} onClose={() => setShowSecrets(false)} />
       )}
     </div>
   );
 }
 
+// ── AgentMessage ────────────────────────────────────────────────────
 function AgentMessage({
   msg,
   tools,
@@ -549,35 +615,41 @@ function AgentMessage({
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-foreground text-background px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed">
+        <div className="max-w-[80%] bg-foreground text-background px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed whitespace-pre-wrap">
           {msg.content}
         </div>
       </div>
     );
   }
 
+  const hasDeployTool = tools.some((t) => t.name === "deploy_to_vercel");
+  const deployResult = tools.find((t) => t.name === "deploy_to_vercel" && t.status === "done");
+  const deployUrlFromTool = deployResult?.result?.match(/🔗 Live URL: (https?:\/\/[^\n]+)/)?.[1]?.trim();
+
   return (
     <div className="flex gap-3">
-      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
+      <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
         <Logo className="w-4 h-4 text-primary" />
       </div>
       <div className="flex-1 min-w-0 space-y-3">
-        {/* Tool calls summary */}
+        {/* Tool calls */}
         {tools.length > 0 && (
           <div className="rounded-xl border border-border overflow-hidden">
             <button
               onClick={onToggleTools}
               className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/40 hover:bg-muted/60 transition-colors text-left"
             >
-              <div className="flex items-center gap-2 flex-wrap">
-                {tools.slice(0, expanded ? tools.length : 4).map((t, i) => (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {tools.slice(0, expanded ? tools.length : 5).map((t, i) => (
                   <span
                     key={i}
                     className={cn(
-                      "flex items-center gap-1 text-xs px-2 py-0.5 rounded-full",
-                      t.status === "running"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground"
+                      "flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium",
+                      t.name === "deploy_to_vercel" && t.status === "done"
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                        : t.status === "running"
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted text-muted-foreground"
                     )}
                   >
                     <span>{TOOL_ICONS[t.name] ?? "🔧"}</span>
@@ -588,44 +660,36 @@ function AgentMessage({
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                       </svg>
                     ) : (
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-green-500">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-green-500">
                         <polyline points="20 6 9 17 4 12"/>
                       </svg>
                     )}
                   </span>
                 ))}
-                {!expanded && tools.length > 4 && (
-                  <span className="text-xs text-muted-foreground">+{tools.length - 4} more</span>
+                {!expanded && tools.length > 5 && (
+                  <span className="text-xs text-muted-foreground">+{tools.length - 5} more</span>
                 )}
               </div>
-              <svg
-                width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                className={cn("shrink-0 ml-2 text-muted-foreground transition-transform", expanded && "rotate-180")}
-              >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                className={cn("shrink-0 ml-2 text-muted-foreground transition-transform", expanded && "rotate-180")}>
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
             </button>
 
-            {/* Expanded tool details */}
             {expanded && (
               <div className="divide-y divide-border/50">
                 {tools.map((t, i) => (
                   <div key={i} className="px-3 py-2">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span>{TOOL_ICONS[t.name] ?? "🔧"}</span>
                       <span className="text-xs font-medium">{TOOL_LABELS[t.name] ?? t.name}</span>
-                      {t.args.path && (
-                        <code className="text-xs bg-muted px-1.5 rounded text-primary">{t.args.path}</code>
-                      )}
-                      {t.args.command && (
-                        <code className="text-xs bg-muted px-1.5 rounded text-muted-foreground">{t.args.command}</code>
-                      )}
-                      {t.args.url && (
-                        <span className="text-xs text-muted-foreground truncate max-w-32">{t.args.url}</span>
-                      )}
+                      {t.args.path && <code className="text-xs bg-muted px-1.5 py-0.5 rounded text-primary">{t.args.path}</code>}
+                      {t.args.command && <code className="text-xs bg-muted px-1.5 py-0.5 rounded text-muted-foreground max-w-48 truncate">{t.args.command}</code>}
+                      {t.args.url && <span className="text-xs text-muted-foreground truncate max-w-40">{t.args.url}</span>}
+                      {t.args.packages && <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{(t.args.packages as string[]).join(", ")}</code>}
                     </div>
                     {t.result && (
-                      <pre className="text-xs font-mono text-muted-foreground bg-muted/50 rounded-lg px-2 py-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap">
+                      <pre className="text-xs font-mono text-muted-foreground bg-muted/50 rounded-lg px-2 py-1.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-words">
                         {t.result}
                       </pre>
                     )}
@@ -633,6 +697,32 @@ function AgentMessage({
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Deploy success card */}
+        {deployUrlFromTool && (
+          <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl px-4 py-3">
+            <span className="text-2xl shrink-0">🚀</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Live on Vercel!</p>
+              <a
+                href={deployUrlFromTool}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-emerald-600 hover:underline truncate block"
+              >
+                {deployUrlFromTool}
+              </a>
+            </div>
+            <a
+              href={deployUrlFromTool}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+            >
+              Open →
+            </a>
           </div>
         )}
 
@@ -648,7 +738,7 @@ function AgentMessage({
                 <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
               </div>
             ) : null}
-            {!msg.streaming && (
+            {!msg.streaming && msg.content && (
               <p className="text-xs text-muted-foreground mt-2">{formatRelativeTime(msg.createdAt)}</p>
             )}
           </div>
