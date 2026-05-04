@@ -1,0 +1,192 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 7%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 7%;
+  --card-border: 0 0% 91%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 7%;
+  --popover-border: 0 0% 91%;
+  --primary: 24 90% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 7%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 24 90% 53%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 24 90% 53%;
+  --sidebar: 0 0% 98%;
+  --sidebar-foreground: 0 0% 7%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-primary: 24 90% 53%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 93%;
+  --sidebar-accent-foreground: 0 0% 7%;
+  --sidebar-ring: 24 90% 53%;
+  --app-font-sans: 'Inter', system-ui, sans-serif;
+  --app-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --radius: 0.5rem;
+  --button-outline: rgba(0,0,0,0.1);
+  --primary-border: hsl(24 90% 48%);
+  --secondary-border: hsl(0 0% 92%);
+  --muted-border: hsl(0 0% 92%);
+  --accent-border: hsl(24 90% 48%);
+  --destructive-border: hsl(0 84% 55%);
+}
+
+.dark {
+  --background: 0 0% 7%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 10%;
+  --card-foreground: 0 0% 98%;
+  --card-border: 0 0% 16%;
+  --popover: 0 0% 10%;
+  --popover-foreground: 0 0% 98%;
+  --popover-border: 0 0% 16%;
+  --primary: 24 90% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 15%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 24 90% 53%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62% 40%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 16%;
+  --input: 0 0% 16%;
+  --ring: 24 90% 53%;
+  --sidebar: 0 0% 9%;
+  --sidebar-foreground: 0 0% 98%;
+  --sidebar-border: 0 0% 14%;
+  --sidebar-primary: 24 90% 53%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 14%;
+  --sidebar-accent-foreground: 0 0% 98%;
+  --sidebar-ring: 24 90% 53%;
+  --button-outline: rgba(255,255,255,0.1);
+  --primary-border: hsl(24 90% 58%);
+  --secondary-border: hsl(0 0% 19%);
+  --muted-border: hsl(0 0% 19%);
+  --accent-border: hsl(24 90% 58%);
+  --destructive-border: hsl(0 62% 45%);
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply font-sans antialiased bg-background text-foreground; }
+  html { scroll-behavior: smooth; }
+}
+
+/* Streaming cursor */
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.streaming-cursor::after {
+  content: '▋';
+  display: inline-block;
+  animation: blink 0.7s infinite;
+  color: hsl(var(--primary));
+  margin-left: 2px;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+
+/* Prose styles for AI messages */
+.prose-ai {
+  @apply text-foreground text-sm leading-relaxed;
+}
+.prose-ai h1, .prose-ai h2, .prose-ai h3 {
+  @apply font-semibold text-foreground mt-4 mb-2;
+}
+.prose-ai h1 { @apply text-xl; }
+.prose-ai h2 { @apply text-lg; }
+.prose-ai h3 { @apply text-base; }
+.prose-ai p { @apply mb-3 last:mb-0; }
+.prose-ai ul, .prose-ai ol { @apply mb-3 pl-5; }
+.prose-ai ul { @apply list-disc; }
+.prose-ai ol { @apply list-decimal; }
+.prose-ai li { @apply mb-1; }
+.prose-ai code:not(pre code) {
+  @apply bg-muted text-primary px-1.5 py-0.5 rounded text-xs font-mono;
+}
+.prose-ai pre {
+  @apply bg-muted rounded-lg p-4 mb-3 overflow-x-auto;
+}
+.prose-ai pre code {
+  @apply bg-transparent text-foreground text-xs font-mono;
+}
+.prose-ai blockquote {
+  @apply border-l-2 border-primary pl-4 italic text-muted-foreground my-3;
+}
+.prose-ai table {
+  @apply w-full border-collapse mb-3 text-sm;
+}
+.prose-ai th {
+  @apply bg-muted font-medium text-left px-3 py-2 border border-border;
+}
+.prose-ai td {
+  @apply px-3 py-2 border border-border;
+}
+.prose-ai a {
+  @apply text-primary underline underline-offset-2;
+}
+.prose-ai strong { @apply font-semibold; }
+.prose-ai em { @apply italic; }
+.prose-ai hr { @apply border-border my-4; }
