@@ -432,9 +432,8 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
       });
 
       let iterationText = "";
-      // ✅ FIX: Use a plain object map instead of a sparse array
-      // to avoid undefined holes when iterating later.
-      const toolCallsMap: Record<number, { id: string; name: string; arguments: string }> = {};
+      const toolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+      let currentToolCall: { id: string; name: string; arguments: string } | null = null;
 
       for await (const chunk of stream) {
         const choice = chunk.choices[0];
@@ -449,16 +448,17 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
           sendEvent("chunk", { delta: delta.content, msgId: aiMsgId });
         }
 
-        // Accumulate tool calls into the map
+        // Accumulate tool calls
         if (delta.tool_calls) {
           for (const tc of delta.tool_calls) {
-            if (tc.index === undefined) continue;
-            if (!toolCallsMap[tc.index]) {
-              toolCallsMap[tc.index] = { id: tc.id ?? "", name: "", arguments: "" };
+            if (tc.index !== undefined) {
+              if (!toolCalls[tc.index]) {
+                toolCalls[tc.index] = { id: tc.id ?? "", name: "", arguments: "" };
+              }
+              if (tc.id) toolCalls[tc.index].id = tc.id;
+              if (tc.function?.name) toolCalls[tc.index].name = tc.function.name;
+              if (tc.function?.arguments) toolCalls[tc.index].arguments += tc.function.arguments;
             }
-            if (tc.id) toolCallsMap[tc.index].id = tc.id;
-            if (tc.function?.name) toolCallsMap[tc.index].name = tc.function.name;
-            if (tc.function?.arguments) toolCallsMap[tc.index].arguments += tc.function.arguments;
           }
         }
 
@@ -466,9 +466,6 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
           continueLoop = false;
         }
       }
-
-      // ✅ FIX: Convert map to a dense array — no undefined holes guaranteed.
-      const toolCalls = Object.values(toolCallsMap);
 
       // Push assistant message
       messages.push({
@@ -488,9 +485,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         continueLoop = true;
 
         for (const tc of toolCalls) {
-          // ✅ FIX: Guard against entries with empty name (partial chunks)
-          if (!tc || !tc.name) continue;
-
+          if (!tc.name) continue;
           toolCallsUsed.push(tc.name);
 
           let args: Record<string, any> = {};

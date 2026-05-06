@@ -11,23 +11,11 @@ const execAsync = promisify(exec);
 const router = Router();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/**
- * ✅ FIX: fallback safe path + prevent ENOENT
- */
-const WORKSPACES_DIR = path.resolve(process.cwd(), "data/workspaces");
-
-/**
- * ✅ FIX: create base directory once (IMPORTANT)
- */
-fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
+const WORKSPACES_DIR = path.resolve(__dirname, "../../../../../data/workspaces");
 
 function getWorkspaceDir(projectId: string): string {
   const dir = path.join(WORKSPACES_DIR, projectId);
-
-  // safe create per project
   fs.mkdirSync(dir, { recursive: true });
-
   return dir;
 }
 
@@ -188,8 +176,10 @@ router.post("/projects/:projectId/run", async (req, res) => {
   const wsDir = getWorkspaceDir(req.params.projectId);
   const secrets = getProjectSecrets(req.params.projectId);
 
+  // Kill any existing process for this project
   killProject(req.params.projectId);
 
+  // Determine entry point
   const entryFiles = ["index.ts", "src/index.ts", "index.js", "src/index.js"];
   let entry = "index.ts";
   for (const f of entryFiles) {
@@ -211,26 +201,70 @@ router.post("/projects/:projectId/run", async (req, res) => {
   }
 });
 
-// POST /api/projects/:projectId/fetch
+// POST /api/projects/:projectId/fetch - fetch a URL
 router.post("/projects/:projectId/fetch", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
-  const { url, method = "GET", headers: reqHeaders } = req.body as any;
+  const { url, method = "GET", headers: reqHeaders } = req.body as {
+    url: string; method?: string; headers?: Record<string, string>;
+  };
   if (!url) { res.status(400).json({ error: "url is required" }); return; }
   try {
     const response = await fetch(url, {
       method,
       headers: { "User-Agent": "Mozilla/5.0 AI Builder Bot", ...reqHeaders },
     });
+    const contentType = response.headers.get("content-type") ?? "";
     const text = await response.text();
+    // Truncate large responses
     const truncated = text.length > 20000 ? text.slice(0, 20000) + "\n...[truncated]" : text;
-    res.json({ status: response.status, body: truncated, url });
+    res.json({
+      status: response.status,
+      contentType,
+      body: truncated,
+      url,
+    });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// Helpers (UNCHANGED)
+// GET /api/projects/:projectId/secrets
+router.get("/projects/:projectId/secrets", (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+  const project = findById<any>("projects", req.params.projectId);
+  if (!project || project.userId !== userId) { res.status(404).json({ error: "Project not found" }); return; }
+  const secrets = getProjectSecrets(req.params.projectId);
+  res.json({ secrets });
+});
+
+// PUT /api/projects/:projectId/secrets
+router.put("/projects/:projectId/secrets", (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+  const project = findById<any>("projects", req.params.projectId);
+  if (!project || project.userId !== userId) { res.status(404).json({ error: "Project not found" }); return; }
+  const { secrets } = req.body as { secrets: Record<string, string> };
+  setProjectSecrets(req.params.projectId, secrets);
+  res.json({ success: true });
+});
+
+// GET /api/projects/:projectId/preview (serves static files)
+router.get("/projects/:projectId/preview", (req, res) => {
+  const wsDir = path.join(WORKSPACES_DIR, req.params.projectId);
+  const distDir = path.join(wsDir, "dist");
+  const publicDir = path.join(wsDir, "public");
+  const serveDir = fs.existsSync(distDir) ? distDir : fs.existsSync(publicDir) ? publicDir : wsDir;
+  const indexPath = path.join(serveDir, "index.html");
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).json({ error: "No preview available. Build the project first." });
+  }
+});
+
+// Helpers
 const runningProcesses: Record<string, any> = {};
 
 function killProject(projectId: string) {
