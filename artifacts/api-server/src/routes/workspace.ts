@@ -11,7 +11,7 @@ const execAsync = promisify(exec);
 const router = Router();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACES_DIR = path.resolve(__dirname, "../../../../../data/workspaces");
+const WORKSPACES_DIR = path.resolve(__dirname, "../../../../data/workspaces");
 
 function getWorkspaceDir(projectId: string): string {
   const dir = path.join(WORKSPACES_DIR, projectId);

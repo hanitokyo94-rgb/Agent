@@ -689,6 +689,9 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const aiMsgId = (await import("uuid")).v4();
   let fullContent = "";
   const toolsUsed: string[] = [];
+  const model = process.env.AI_MODEL ?? "anthropic/claude-opus-4-6";
+  // Qwen3 and some models emit <think>...</think> blocks — strip from user-facing content
+  const isThinkingModel = model.toLowerCase().includes("qwen") || model.toLowerCase().includes("deepseek-r") || model.toLowerCase().includes("qwq");
 
   try {
     let continueLoop = true;
@@ -698,16 +701,24 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     while (continueLoop && iterations < MAX_ITERATIONS) {
       iterations++;
 
-      const stream = await client.chat.completions.create({
-        model: process.env.AI_MODEL ?? "anthropic/claude-opus-4-6",
+      const reqParams: any = {
+        model,
         messages,
         tools: AGENT_TOOLS,
         tool_choice: "auto",
         max_tokens: 8192,
         stream: true,
-      });
+      };
+      // Qwen3: disable built-in thinking to avoid conflicts with tool calling
+      if (isThinkingModel) {
+        reqParams.extra_body = { enable_thinking: false };
+      }
+
+      const stream = await client.chat.completions.create(reqParams);
 
       let iterText = "";
+      let thinkBuffer = "";
+      let inThink = false;
       const toolCalls: Array<{ id: string; name: string; arguments: string }> = [];
 
       for await (const chunk of stream) {
@@ -716,9 +727,49 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         const delta = choice.delta;
 
         if (delta.content) {
-          iterText += delta.content;
-          fullContent += delta.content;
-          sendEvent("chunk", { delta: delta.content, msgId: aiMsgId });
+          // Handle <think>...</think> tokens from Qwen3 / DeepSeek-R1
+          if (isThinkingModel) {
+            let text = delta.content;
+            // Feed into think-filter
+            thinkBuffer += text;
+
+            // Extract visible content (outside <think> blocks)
+            let visible = "";
+            let buf = thinkBuffer;
+            while (true) {
+              if (!inThink) {
+                const startIdx = buf.indexOf("<think>");
+                if (startIdx === -1) {
+                  visible += buf;
+                  buf = "";
+                  break;
+                }
+                visible += buf.slice(0, startIdx);
+                buf = buf.slice(startIdx + 7);
+                inThink = true;
+              } else {
+                const endIdx = buf.indexOf("</think>");
+                if (endIdx === -1) {
+                  // Still inside think block, consume
+                  buf = "";
+                  break;
+                }
+                buf = buf.slice(endIdx + 8);
+                inThink = false;
+              }
+            }
+            thinkBuffer = buf;
+
+            if (visible) {
+              iterText += visible;
+              fullContent += visible;
+              sendEvent("chunk", { delta: visible, msgId: aiMsgId });
+            }
+          } else {
+            iterText += delta.content;
+            fullContent += delta.content;
+            sendEvent("chunk", { delta: delta.content, msgId: aiMsgId });
+          }
         }
 
         if (delta.tool_calls) {
@@ -737,7 +788,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         }
       }
 
-      // Push assistant turn
+      // Push assistant turn — use clean content without think tokens for history
       messages.push({
         role: "assistant",
         content: iterText || null,
