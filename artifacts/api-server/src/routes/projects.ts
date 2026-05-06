@@ -74,7 +74,7 @@ router.post("/projects/generate-name", async (req, res) => {
       baseURL: process.env.AI_BASE_URL,
     });
     const resp = await client.chat.completions.create({
-      model: process.env.AI_MODEL ?? "anthropic/claude-opus-4-5",
+      model: process.env.AI_MODEL ?? "z-ai/glm-5.1",
       messages: [
         {
           role: "user",

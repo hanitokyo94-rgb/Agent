@@ -174,7 +174,7 @@ router.post("/projects/:projectId/messages", async (req, res) => {
     }));
 
     const completion = await client.chat.completions.create({
-      model: process.env.AI_MODEL ?? "anthropic/claude-opus-4-5",
+      model: process.env.AI_MODEL ?? "z-ai/glm-5.1",
       messages: [
         { role: "system", content: getSystemPrompt(userLang) },
         ...history,
