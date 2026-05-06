@@ -1,13 +1,14 @@
 /**
- * Agent Builder streaming endpoint with full tool-calling support
+ * Manus-inspired Agent Stream
  * POST /api/projects/:projectId/agent/stream
+ * Single unified endpoint — AI auto-detects chat vs build intent
  */
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { findById, findWhere, insertRecord, updateRecord, readCollection } from "../lib/storage.js";
+import { findById, findWhere, insertRecord, updateRecord } from "../lib/storage.js";
 import { getWorkspaceDir, getProjectSecrets, listFilesRecursive } from "./workspace.js";
 import { deployToVercel } from "../lib/vercel-deploy.js";
 import type { User } from "./auth.js";
@@ -15,6 +16,7 @@ import type { User } from "./auth.js";
 const execAsync = promisify(exec);
 const router = Router();
 
+// ── Auth helper ────────────────────────────────────────────────────
 function getUserId(req: any): string | null {
   let userId = req.session?.userId;
   if (!userId) {
@@ -30,54 +32,150 @@ function getUserId(req: any): string | null {
   return userId ?? null;
 }
 
-// ─── Tool definitions ──────────────────────────────────────────────
+// ── Tool definitions (Manus-style) ─────────────────────────────────
 const AGENT_TOOLS = [
+  // ── Messaging ──
   {
     type: "function" as const,
     function: {
-      name: "write_file",
-      description: "Write content to a file in the project workspace. Creates directories as needed.",
+      name: "message_notify",
+      description: "Send a progress update or status message to the user without stopping. Use for: acknowledging requests, reporting progress, explaining your plan. Do NOT use for delivering final results — use task_done for that.",
       parameters: {
         type: "object",
         properties: {
-          path: { type: "string", description: "Relative file path e.g. src/index.ts" },
-          content: { type: "string", description: "The full file content to write" },
+          text: { type: "string", description: "Notification message text" },
         },
-        required: ["path", "content"],
+        required: ["text"],
       },
     },
   },
   {
     type: "function" as const,
     function: {
-      name: "read_file",
-      description: "Read the content of a file in the project workspace.",
+      name: "task_done",
+      description: "Signal that the current task is fully complete. Send the final summary/result to the user. Always call this when the task is done — it marks completion in the UI.",
       parameters: {
         type: "object",
         properties: {
-          path: { type: "string", description: "Relative file path" },
+          summary: { type: "string", description: "Complete summary of what was accomplished, results, file paths, URLs, etc." },
         },
-        required: ["path"],
+        required: ["summary"],
+      },
+    },
+  },
+
+  // ── File operations ──
+  {
+    type: "function" as const,
+    function: {
+      name: "file_write",
+      description: "Write or overwrite a file in the project workspace. Creates parent directories automatically. Use for creating new files or completely replacing file content.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "Relative file path e.g. src/index.ts or public/index.html" },
+          content: { type: "string", description: "Complete file content to write" },
+          append: { type: "boolean", description: "If true, append to existing file instead of overwriting" },
+        },
+        required: ["file", "content"],
       },
     },
   },
   {
     type: "function" as const,
     function: {
-      name: "list_files",
-      description: "List all files in the project workspace.",
+      name: "file_read",
+      description: "Read the content of a file in the project workspace. Optionally specify line range.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "Relative file path" },
+          start_line: { type: "integer", description: "Optional: 0-based starting line to read from" },
+          end_line: { type: "integer", description: "Optional: end line (exclusive)" },
+        },
+        required: ["file"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "file_str_replace",
+      description: "Replace an exact string within a file. Use for targeted edits — more efficient than rewriting the whole file. The old_str must match exactly.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "Relative file path" },
+          old_str: { type: "string", description: "Exact string to find and replace" },
+          new_str: { type: "string", description: "Replacement string" },
+        },
+        required: ["file", "old_str", "new_str"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "file_find_by_name",
+      description: "Find files by name pattern (glob) in the project workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          glob: { type: "string", description: "Glob pattern e.g. '*.ts' or 'src/**/*.tsx'" },
+        },
+        required: ["glob"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "file_find_in_content",
+      description: "Search for text or regex pattern within files in the workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          regex: { type: "string", description: "Search pattern (regex or plain text)" },
+          file: { type: "string", description: "Optional: specific file to search in. If omitted, searches all files." },
+        },
+        required: ["regex"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "file_list",
+      description: "List all files and directories in the project workspace.",
       parameters: { type: "object", properties: {} },
     },
   },
   {
     type: "function" as const,
     function: {
-      name: "run_command",
-      description: "Run a shell command in the project workspace (e.g. compile, test, build).",
+      name: "file_delete",
+      description: "Delete a file from the project workspace.",
       parameters: {
         type: "object",
         properties: {
-          command: { type: "string", description: "Shell command to execute" },
+          file: { type: "string", description: "Relative file path to delete" },
+        },
+        required: ["file"],
+      },
+    },
+  },
+
+  // ── Shell ──
+  {
+    type: "function" as const,
+    function: {
+      name: "shell_exec",
+      description: "Execute a shell command in the project workspace. Use for: running builds, compiling TypeScript, running tests, starting servers briefly, checking installed packages, git operations, etc. Chains with && are supported. Timeout: 90 seconds.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Shell command to execute. Use -y/-f flags to avoid interactive prompts." },
+          timeout: { type: "integer", description: "Optional timeout in seconds (default: 90, max: 300)" },
         },
         required: ["command"],
       },
@@ -87,30 +185,35 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "install_packages",
-      description: "Install npm packages into the project workspace.",
+      description: "Install npm packages into the project workspace via npm install.",
       parameters: {
         type: "object",
         properties: {
           packages: {
             type: "array",
             items: { type: "string" },
-            description: "Package names to install e.g. ['express', 'typescript']",
+            description: "Package names to install e.g. ['express', '@types/express', 'typescript']",
           },
+          dev: { type: "boolean", description: "If true, install as devDependencies (--save-dev)" },
         },
         required: ["packages"],
       },
     },
   },
+
+  // ── Web ──
   {
     type: "function" as const,
     function: {
       name: "fetch_url",
-      description: "Fetch content from a URL (browse the web, read docs, get APIs).",
+      description: "Fetch content from a URL. Use for: reading API docs, downloading data, checking APIs, reading GitHub raw files, fetching web pages. Returns page content as text.",
       parameters: {
         type: "object",
         properties: {
-          url: { type: "string", description: "URL to fetch" },
-          method: { type: "string", enum: ["GET", "POST"], description: "HTTP method" },
+          url: { type: "string", description: "Full URL including protocol" },
+          method: { type: "string", enum: ["GET", "POST", "PUT", "DELETE"], description: "HTTP method (default: GET)" },
+          body: { type: "string", description: "Optional request body for POST/PUT" },
+          headers: { type: "object", description: "Optional HTTP headers as key-value pairs" },
         },
         required: ["url"],
       },
@@ -119,12 +222,28 @@ const AGENT_TOOLS = [
   {
     type: "function" as const,
     function: {
-      name: "set_secret",
-      description: "Store a secret/environment variable for the project.",
+      name: "web_search",
+      description: "Search the web for information. Use for: finding documentation, researching libraries, getting latest info, finding examples.",
       parameters: {
         type: "object",
         properties: {
-          key: { type: "string", description: "Secret key name" },
+          query: { type: "string", description: "Search query (3-5 keywords, Google-style)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+
+  // ── Secrets & Config ──
+  {
+    type: "function" as const,
+    function: {
+      name: "set_secret",
+      description: "Store a secret or environment variable for the project. These are injected as env vars when running the project.",
+      parameters: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Environment variable name e.g. DATABASE_URL" },
           value: { type: "string", description: "Secret value" },
         },
         required: ["key", "value"],
@@ -134,191 +253,352 @@ const AGENT_TOOLS = [
   {
     type: "function" as const,
     function: {
-      name: "run_project",
-      description: "Run the project entry point (index.ts). Use after all files are written.",
+      name: "get_secrets",
+      description: "List the names (not values) of stored project secrets/environment variables.",
       parameters: { type: "object", properties: {} },
     },
   },
+
+  // ── Deploy ──
   {
     type: "function" as const,
     function: {
       name: "deploy_to_vercel",
-      description: "Deploy the project to Vercel and get a live public URL. Call this after the project is built and tested. It will create a unique URL and redeploy on the same project on subsequent calls.",
+      description: "Deploy the project to Vercel and get a public live URL. Call AFTER the project is built and tested. On subsequent calls, redeploys to the same URL. Handles both static sites and Node.js apps.",
       parameters: { type: "object", properties: {} },
     },
   },
 ];
 
-function getAgentSystemPrompt(lang: string | null | undefined): string {
+// ── System prompt (Manus-inspired) ────────────────────────────────
+function getSystemPrompt(lang: string | null | undefined, workspaceFileCount: number): string {
   const isArabic = lang === "ar" || lang?.startsWith("ar");
+
+  const filesContext = workspaceFileCount > 0
+    ? (isArabic ? `\nالمشروع يحتوي حالياً على ${workspaceFileCount} ملف في مساحة العمل.` : `\nProject currently has ${workspaceFileCount} files in workspace.`)
+    : "";
+
   if (isArabic) {
-    return `أنت وكيل ذكاء اصطناعي خبير في بناء ونشر المشاريع البرمجية الكاملة. عندك صلاحيات كاملة.
+    return `أنت وكيل ذكاء اصطناعي متقدم — مدعوم بقدرات مشابهة لـ Manus AI. تعمل في بيئة Linux مع وصول كامل للإنترنت.${filesContext}
 
-قدراتك:
-- كتابة وقراءة الملفات في مساحة العمل
-- تشغيل أوامر shell مباشرة
-- تثبيت حزم npm
-- تشغيل المشروع محلياً
-- تصفح الإنترنت وجلب APIs والمستندات
-- حفظ secrets وبيانات البيئة
-- النشر التلقائي على Vercel والحصول على رابط حي
+<قدراتك>
+- قراءة وكتابة وتعديل الملفات بدقة عالية
+- تنفيذ أوامر shell ومعالجة النتائج
+- تثبيت حزم npm وإدارة المشاريع
+- تصفح الإنترنت وجلب API والمستندات
+- البحث في الويب للمعلومات الحديثة
+- حفظ الـ secrets وإدارة متغيرات البيئة
+- نشر المشاريع على Vercel والحصول على روابط حية
+</قدراتك>
 
-قواعد البناء الصارمة:
-1. ابدأ دائماً بـ package.json مع جميع dependencies المطلوبة
-2. ملف الدخول الرئيسي: index.ts (TypeScript دائماً)
-3. Backend: TypeScript + Express/Fastify مع types كاملة
-4. Frontend: HTML/CSS/JS احترافي أو React مع Vite
-5. اكتب كود حقيقي قابل للتشغيل - بدون placeholders أو TODO
-6. بعد اكتمال البناء: شغّل run_project للتحقق
-7. بعد التأكيد: استخدم deploy_to_vercel للنشر التلقائي والحصول على رابط حي
-8. عند Redeploy: استخدم نفس أداة deploy_to_vercel وستحافظ على نفس الرابط
+<طريقة العمل>
+1. **حلل الطلب**: افهم ماذا يريد المستخدم بدقة
+2. **قرر النوع تلقائياً**:
+   - طلب محادثة/سؤال/معلومات → أجب مباشرة بدون أدوات (أو بأدوات محدودة مثل web_search)
+   - طلب بناء/كود/مشروع → استخدم الأدوات الكاملة للبناء والنشر
+   - لا تسأل المستخدم "هل تريد محادثة أم بناء؟" — اكتشف بنفسك
+3. **نفّذ بترتيب منطقي**: للمشاريع، اتبع هذا الترتيب:
+   - file_write (package.json أولاً) → file_write (باقي الملفات) → install_packages → shell_exec (build/test) → deploy_to_vercel
+4. **أخبر المستخدم بالتقدم**: استخدم message_notify لكل خطوة مهمة
+5. **أنهِ بـ task_done**: عند اكتمال أي مهمة، لخّص النتيجة
+</طريقة العمل>
 
-ترتيب العمل المثالي:
-write_file (package.json) → write_file (الملفات) → install_packages → run_project → deploy_to_vercel
+<قواعد البناء>
+- ابدأ دائماً بـ package.json مع جميع dependencies
+- TypeScript للـ backend دائماً
+- Frontend: HTML/CSS/JS احترافي أو React مع Vite
+- لا placeholders، لا TODO، لا mock data — كود حقيقي قابل للتشغيل فقط
+- عند تعديل ملف موجود: استخدم file_str_replace بدلاً من إعادة كتابة الملف كله
+- بعد التثبيت والبناء: اختبر أن كل شيء يعمل ثم انشر على Vercel
+</قواعد البناء>
 
-أسلوبك:
-- ابدأ مباشرة بدون مقدمات طويلة
-- أخبر المستخدم بكل خطوة بوضوح
-- عند الانتهاء: اعرض الرابط الحي وملخص الملفات`;
+<قواعد التواصل>
+- استخدم message_notify للتحديثات المؤقتة
+- استخدم task_done عند الانتهاء من أي مهمة
+- تكلم بنفس لغة المستخدم
+- لا قوائم مطوّلة في ردودك — استخدم نصاً متدفقاً
+- كن مباشراً ومختصراً في التحديثات، مفصّلاً في النتائج
+</قواعد التواصل>`;
   }
 
-  return `You are an expert AI agent that builds and deploys complete software projects. You have full permissions.
+  return `You are an advanced AI agent — powered with capabilities similar to Manus AI. You operate in a Linux environment with full internet access and a project workspace.${filesContext}
 
-Your capabilities:
-- Write and read files in the project workspace
-- Execute shell commands directly
-- Install npm packages
-- Run the project locally to test it
-- Browse the web and fetch APIs/documentation
-- Manage secrets and environment variables
-- Deploy automatically to Vercel and get a live public URL
+<capabilities>
+- Read, write, and precisely edit files (targeted string replacements)
+- Execute shell commands and process results
+- Install npm packages and manage projects
+- Browse the web, fetch APIs and documentation
+- Search the web for up-to-date information
+- Store secrets and manage environment variables
+- Deploy projects to Vercel and provide live public URLs
+</capabilities>
 
-Strict build rules:
-1. Always start with package.json including ALL required dependencies
-2. Main entry file: index.ts (TypeScript always)
-3. Backend: TypeScript + Express/Fastify with proper types
-4. Frontend: Professional HTML/CSS/JS or React with Vite
-5. Write real, executable code — NO placeholders, NO "TODO", NO mock data
-6. After building: call run_project to verify it works
-7. After verification: call deploy_to_vercel to deploy and get a live URL
-8. On redeploy: use deploy_to_vercel again — it reuses the same Vercel project/URL
+<agent_loop>
+You operate iteratively:
+1. Analyze the user's request to understand the true intent
+2. Auto-detect the task type — NO need to ask the user to switch modes:
+   - Conversation/question/information → respond directly (use web_search if needed for current info)
+   - Build/code/project/automation → use the full tool suite to build, test, and deploy
+   - The AI determines intent — never ask "do you want chat or build mode?"
+3. Execute in logical order. For projects:
+   file_write (package.json first) → file_write (source files) → install_packages → shell_exec (build/test) → deploy_to_vercel
+4. Notify progress with message_notify at each meaningful step
+5. End every task with task_done — summarize what was accomplished
+</agent_loop>
 
-Ideal workflow order:
-write_file (package.json) → write_file (files) → install_packages → run_project → deploy_to_vercel
+<build_rules>
+- Always start with package.json containing ALL required dependencies
+- TypeScript for backend always — never plain JS for backend
+- Frontend: professional HTML/CSS/JS or React with Vite
+- NO placeholders, NO TODO comments, NO mock data — real executable code only
+- For editing existing files: prefer file_str_replace over rewriting the whole file
+- Chain shell commands with && to minimize roundtrips: e.g. "cd .. && npm install && npm run build"
+- After installing and building: verify it works, then deploy to Vercel automatically
+- Use web_search + fetch_url to find correct APIs, docs, and latest package versions
+</build_rules>
 
-Style:
-- Start building immediately without lengthy introductions
-- Tell the user what you're doing at each step
-- When done: show the live URL prominently and a file summary`;
+<communication_rules>
+- Use message_notify for intermediate progress updates (non-blocking)
+- Use task_done when fully completing any task — include all results, URLs, file paths
+- Match the user's language (Arabic/English)
+- Avoid bullet-point lists in responses — use flowing prose
+- Be concise in updates, thorough in final results
+- Never mention tool names to the user — say what you're doing naturally
+</communication_rules>
+
+<error_handling>
+- If a command fails, read the error and try alternative approaches
+- If a package install fails, check the error, try a different version or approach
+- After 3 failed attempts on the same step, notify the user and explain the situation
+- Never silently swallow errors — always report what happened
+</error_handling>`;
 }
 
-// ─── Execute tool ──────────────────────────────────────────────────
+// ── Tool executor ──────────────────────────────────────────────────
 async function executeTool(
   name: string,
   args: Record<string, any>,
-  projectId: string
+  projectId: string,
+  sendEvent: (event: string, data: unknown) => void
 ): Promise<string> {
   const wsDir = getWorkspaceDir(projectId);
   const secrets = getProjectSecrets(projectId);
 
+  // Helper: safe path inside workspace
+  const safePath = (p: string) => {
+    const abs = path.resolve(wsDir, p.startsWith("/") ? p.slice(1) : p);
+    if (!abs.startsWith(wsDir)) throw new Error("Path outside workspace");
+    return abs;
+  };
+
   switch (name) {
-    case "write_file": {
-      const abs = path.resolve(wsDir, args.path);
-      if (!abs.startsWith(wsDir)) return "Error: Invalid path";
+    // ── Messaging ──
+    case "message_notify": {
+      sendEvent("notify", { text: args.text });
+      return `[Notification sent to user]`;
+    }
+
+    case "task_done": {
+      sendEvent("task_done", { summary: args.summary });
+      return `[Task marked complete]`;
+    }
+
+    // ── File ops ──
+    case "file_write": {
+      const abs = safePath(args.file);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
+      if (args.append && fs.existsSync(abs)) {
+        fs.appendFileSync(abs, args.content, "utf-8");
+        return `✓ Appended to: ${args.file}`;
+      }
       fs.writeFileSync(abs, args.content, "utf-8");
-      return `✓ Written: ${args.path} (${args.content.length} chars)`;
+      return `✓ Written: ${args.file} (${args.content.length} chars)`;
     }
 
-    case "read_file": {
-      const abs = path.resolve(wsDir, args.path);
-      if (!abs.startsWith(wsDir)) return "Error: Invalid path";
-      if (!fs.existsSync(abs)) return `Error: File not found: ${args.path}`;
+    case "file_read": {
+      const abs = safePath(args.file);
+      if (!fs.existsSync(abs)) return `Error: File not found: ${args.file}`;
+      let content = fs.readFileSync(abs, "utf-8");
+      if (args.start_line !== undefined || args.end_line !== undefined) {
+        const lines = content.split("\n");
+        const start = args.start_line ?? 0;
+        const end = args.end_line ?? lines.length;
+        content = lines.slice(start, end).join("\n");
+      }
+      return content.length > 12000 ? content.slice(0, 12000) + "\n...[truncated at 12000 chars]" : content;
+    }
+
+    case "file_str_replace": {
+      const abs = safePath(args.file);
+      if (!fs.existsSync(abs)) return `Error: File not found: ${args.file}`;
       const content = fs.readFileSync(abs, "utf-8");
-      return content.length > 8000 ? content.slice(0, 8000) + "\n...[truncated]" : content;
+      if (!content.includes(args.old_str)) {
+        return `Error: String not found in ${args.file}. Make sure old_str matches exactly (including whitespace).`;
+      }
+      const updated = content.replace(args.old_str, args.new_str);
+      fs.writeFileSync(abs, updated, "utf-8");
+      return `✓ Replaced in ${args.file}`;
     }
 
-    case "list_files": {
+    case "file_find_by_name": {
+      const { execSync } = await import("child_process");
+      try {
+        const result = execSync(`find . -name "${args.glob.replace(/"/g, "")}" 2>/dev/null | head -50`, {
+          cwd: wsDir, encoding: "utf-8", timeout: 10000,
+        });
+        return result.trim() || "No files found matching pattern.";
+      } catch {
+        // Fallback: manual glob
+        const all = listFilesRecursive(wsDir);
+        const pattern = args.glob.replace(/\*/g, ".*").replace(/\?/g, ".");
+        const re = new RegExp(pattern, "i");
+        const matches = all.filter((f) => re.test(path.basename(f.path)));
+        return matches.length > 0 ? matches.map((f) => f.path).join("\n") : "No files found.";
+      }
+    }
+
+    case "file_find_in_content": {
+      const files = args.file
+        ? [{ path: args.file, isDir: false, size: 0 }]
+        : listFilesRecursive(wsDir).filter((f) => !f.isDir);
+      const results: string[] = [];
+      const re = new RegExp(args.regex, "gm");
+      for (const f of files) {
+        try {
+          const abs = safePath(f.path);
+          const content = fs.readFileSync(abs, "utf-8");
+          const lines = content.split("\n");
+          lines.forEach((line, i) => {
+            if (re.test(line)) results.push(`${f.path}:${i + 1}: ${line.trim()}`);
+          });
+        } catch {}
+      }
+      return results.length > 0
+        ? results.slice(0, 100).join("\n") + (results.length > 100 ? `\n...[${results.length - 100} more]` : "")
+        : "No matches found.";
+    }
+
+    case "file_list": {
       const files = listFilesRecursive(wsDir);
-      if (files.length === 0) return "No files in workspace yet.";
+      if (files.length === 0) return "Workspace is empty — no files yet.";
       return files
-        .map((f) => `${f.isDir ? "📁" : "📄"} ${f.path}${f.isDir ? "/" : ` (${f.size}B)`}`)
+        .map((f) => `${f.isDir ? "📁" : "📄"} ${f.path}${!f.isDir ? ` (${f.size}B)` : ""}`)
         .join("\n");
     }
 
-    case "run_command": {
+    case "file_delete": {
+      const abs = safePath(args.file);
+      if (!fs.existsSync(abs)) return `File not found: ${args.file}`;
+      fs.rmSync(abs, { recursive: true, force: true });
+      return `✓ Deleted: ${args.file}`;
+    }
+
+    // ── Shell ──
+    case "shell_exec": {
+      const timeoutMs = Math.min((args.timeout ?? 90) * 1000, 300000);
       try {
         const { stdout, stderr } = await execAsync(args.command, {
           cwd: wsDir,
-          timeout: 60000,
-          env: { ...process.env, ...secrets },
+          timeout: timeoutMs,
+          env: { ...process.env, ...secrets, NODE_ENV: "production" },
+          maxBuffer: 1024 * 1024 * 4, // 4MB
         });
         const out = [stdout, stderr].filter(Boolean).join("\n").trim();
-        return out || "(no output)";
+        return out.length > 8000 ? out.slice(0, 8000) + "\n...[output truncated]" : out || "(command succeeded, no output)";
       } catch (err: any) {
-        return `Exit ${err.code ?? 1}:\n${[err.stdout, err.stderr].filter(Boolean).join("\n").trim() || err.message}`;
+        const out = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
+        return `Exit ${err.code ?? 1}:\n${(out || err.message).slice(0, 6000)}`;
       }
     }
 
     case "install_packages": {
       const pkgs = (args.packages as string[])
-        .map((p) => p.replace(/[^a-zA-Z0-9@/._~-]/g, ""))
+        .map((p) => p.replace(/[^a-zA-Z0-9@/._~^<>=\-]/g, ""))
         .join(" ");
+      const flag = args.dev ? "--save-dev" : "--save";
       try {
-        const { stdout, stderr } = await execAsync(`npm install ${pkgs} --save`, {
-          cwd: wsDir,
-          timeout: 120000,
+        const { stdout, stderr } = await execAsync(`npm install ${pkgs} ${flag}`, {
+          cwd: wsDir, timeout: 180000,
+          env: { ...process.env, NPM_CONFIG_YES: "true" },
         });
-        return `✓ Installed: ${pkgs}\n${stderr || ""}`.trim();
+        const out = [stdout, stderr].filter(Boolean).join("\n").trim();
+        return `✓ Installed: ${pkgs}\n${out.slice(0, 2000)}`;
       } catch (err: any) {
-        return `Install error: ${err.stderr || err.message}`;
+        return `Install error:\n${[err.stdout, err.stderr].filter(Boolean).join("\n").trim().slice(0, 3000) || err.message}`;
       }
     }
 
+    // ── Web ──
     case "fetch_url": {
       try {
         const res = await fetch(args.url, {
           method: args.method ?? "GET",
-          headers: { "User-Agent": "AI Builder Agent/1.0" },
+          headers: {
+            "User-Agent": "Mozilla/5.0 AI-Agent/2.0",
+            ...(args.headers ?? {}),
+          },
+          body: args.body ? args.body : undefined,
+          signal: AbortSignal.timeout(30000),
         });
         const text = await res.text();
-        const truncated = text.length > 12000 ? text.slice(0, 12000) + "\n...[truncated]" : text;
-        return `HTTP ${res.status} ${args.url}\nContent-Type: ${res.headers.get("content-type")}\n\n${truncated}`;
+        const truncated = text.length > 15000 ? text.slice(0, 15000) + "\n...[truncated]" : text;
+        return `HTTP ${res.status} — ${args.url}\nContent-Type: ${res.headers.get("content-type")}\n\n${truncated}`;
       } catch (err: any) {
         return `Fetch error: ${err.message}`;
       }
     }
 
+    case "web_search": {
+      // Use DuckDuckGo HTML for search results
+      try {
+        const encoded = encodeURIComponent(args.query);
+        const res = await fetch(`https://html.duckduckgo.com/html/?q=${encoded}`, {
+          headers: { "User-Agent": "Mozilla/5.0 AI-Agent/2.0" },
+          signal: AbortSignal.timeout(15000),
+        });
+        const html = await res.text();
+        // Extract result text
+        const results: string[] = [];
+        const re = /class="result__title"[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>[\s\S]*?class="result__snippet"[^>]*>(.*?)<\/div>/gm;
+        let m;
+        while ((m = re.exec(html)) !== null && results.length < 10) {
+          const url = m[1].replace(/^\/\/duckduckgo\.com\/l\/\?uddg=/, "").split("&")[0];
+          const title = m[2].replace(/<[^>]+>/g, "").trim();
+          const snippet = m[3].replace(/<[^>]+>/g, "").trim();
+          if (title && snippet) results.push(`**${title}**\n${decodeURIComponent(url)}\n${snippet}`);
+        }
+        if (results.length === 0) {
+          // fallback: extract visible text
+          const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 4000);
+          return `Search results for "${args.query}":\n${text}`;
+        }
+        return `Search results for "${args.query}":\n\n${results.join("\n\n")}`;
+      } catch (err: any) {
+        return `Search error: ${err.message}`;
+      }
+    }
+
+    // ── Secrets ──
     case "set_secret": {
       const current = getProjectSecrets(projectId);
       current[args.key] = args.value;
       const secretsPath = path.join(wsDir, ".secrets.json");
+      fs.mkdirSync(wsDir, { recursive: true });
       fs.writeFileSync(secretsPath, JSON.stringify(current, null, 2), "utf-8");
       return `✓ Secret stored: ${args.key}`;
     }
 
-    case "run_project": {
-      const entryFiles = ["index.ts", "src/index.ts", "index.js", "src/index.js"];
-      let entry = "index.ts";
-      for (const f of entryFiles) {
-        if (fs.existsSync(path.join(wsDir, f))) { entry = f; break; }
-      }
-      const hasTsx = fs.existsSync(path.join(wsDir, "node_modules/.bin/tsx"));
-      try {
-        const { stdout, stderr } = await execAsync(
-          hasTsx ? `timeout 20 npx tsx ${entry}` : `timeout 20 node ${entry}`,
-          { cwd: wsDir, timeout: 25000, env: { ...process.env, ...secrets, NODE_ENV: "production" } }
-        );
-        return `✓ Project ran successfully!\n${[stdout, stderr].filter(Boolean).join("\n").trim() || "(no output)"}`;
-      } catch (err: any) {
-        const out = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
-        return `Project output:\n${out || err.message}`;
-      }
+    case "get_secrets": {
+      const current = getProjectSecrets(projectId);
+      const keys = Object.keys(current);
+      if (keys.length === 0) return "No secrets stored for this project.";
+      return `Stored secrets (names only):\n${keys.join("\n")}`;
     }
 
+    // ── Deploy ──
     case "deploy_to_vercel": {
       const token = process.env.VERCEL_TOKEN;
-      if (!token) return "❌ VERCEL_TOKEN not configured. Ask the user to add it.";
+      if (!token) return "❌ VERCEL_TOKEN not configured. Ask the user to add it in project settings.";
       try {
         const project = findById<any>("projects", projectId);
         const result = await deployToVercel(
@@ -328,14 +608,15 @@ async function executeTool(
           project?.vercelProjectId,
           secrets
         );
-        // Save deploy info
         updateRecord("projects", projectId, {
           vercelUrl: result.url,
           vercelProjectId: result.projectId,
           vercelProjectName: result.projectName,
           lastDeployedAt: new Date().toISOString(),
         });
-        return `✅ Deployed to Vercel!\n🔗 Live URL: ${result.url}\n📦 Project: ${result.projectName}\n📊 Status: ${result.readyState}`;
+        // Notify frontend of the deploy URL
+        sendEvent("deploy_done", { url: result.url });
+        return `✅ Deployed successfully!\n🔗 Live URL: ${result.url}\n📦 Project: ${result.projectName}\n📊 Status: ${result.readyState}`;
       } catch (err: any) {
         return `❌ Deploy failed: ${err.message}`;
       }
@@ -346,7 +627,7 @@ async function executeTool(
   }
 }
 
-// ─── Stream endpoint ───────────────────────────────────────────────
+// ── Stream endpoint ────────────────────────────────────────────────
 router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -357,15 +638,11 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     return;
   }
 
-  const { content, attachmentUrl } = req.body as {
-    content?: string;
-    attachmentUrl?: string | null;
-  };
+  const { content } = req.body as { content?: string };
   if (!content) { res.status(400).json({ error: "content is required" }); return; }
 
   const users = findWhere<User>("users", (u) => u.id === userId);
   const user = users[0];
-  const userLang = user?.language;
 
   // SSE headers
   res.setHeader("Content-Type", "text/event-stream");
@@ -386,38 +663,37 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     role: "user" as const,
     content,
     thinkingSteps: null,
-    attachmentUrl: attachmentUrl ?? null,
+    attachmentUrl: null,
     createdAt: new Date().toISOString(),
   };
   insertRecord("messages", userMsg);
   sendEvent("user_message", userMsg);
 
-  // Load message history
+  // Load history
   const allMsgs = findWhere<any>("messages", (m) => m.projectId === req.params.projectId);
   allMsgs.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
+  // Count workspace files for context
+  const wsDir = getWorkspaceDir(req.params.projectId);
+  const wsFiles = fs.existsSync(wsDir) ? listFilesRecursive(wsDir).filter((f) => !f.isDir) : [];
+
   const OpenAI = (await import("openai")).default;
-  const client = new OpenAI({
-    apiKey: process.env.AI_API_KEY,
-    baseURL: process.env.AI_BASE_URL,
-  });
+  const client = new OpenAI({ apiKey: process.env.AI_API_KEY, baseURL: process.env.AI_BASE_URL });
 
   const messages: any[] = [
-    { role: "system", content: getAgentSystemPrompt(userLang) },
-    ...allMsgs.slice(-10).map((m: any) => ({
-      role: m.role,
-      content: m.content,
-    })),
+    { role: "system", content: getSystemPrompt(user?.language, wsFiles.length) },
+    // Include last 16 messages for context
+    ...allMsgs.slice(-16).map((m: any) => ({ role: m.role, content: m.content })),
   ];
 
   const aiMsgId = (await import("uuid")).v4();
   let fullContent = "";
-  const toolCallsUsed: string[] = [];
+  const toolsUsed: string[] = [];
 
   try {
     let continueLoop = true;
     let iterations = 0;
-    const MAX_ITERATIONS = 15;
+    const MAX_ITERATIONS = 20;
 
     while (continueLoop && iterations < MAX_ITERATIONS) {
       iterations++;
@@ -427,34 +703,28 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         messages,
         tools: AGENT_TOOLS,
         tool_choice: "auto",
-        max_tokens: 4096,
+        max_tokens: 8192,
         stream: true,
       });
 
-      let iterationText = "";
+      let iterText = "";
       const toolCalls: Array<{ id: string; name: string; arguments: string }> = [];
-      let currentToolCall: { id: string; name: string; arguments: string } | null = null;
 
       for await (const chunk of stream) {
         const choice = chunk.choices[0];
         if (!choice) continue;
-
         const delta = choice.delta;
 
-        // Stream text
         if (delta.content) {
-          iterationText += delta.content;
+          iterText += delta.content;
           fullContent += delta.content;
           sendEvent("chunk", { delta: delta.content, msgId: aiMsgId });
         }
 
-        // Accumulate tool calls
         if (delta.tool_calls) {
           for (const tc of delta.tool_calls) {
             if (tc.index !== undefined) {
-              if (!toolCalls[tc.index]) {
-                toolCalls[tc.index] = { id: tc.id ?? "", name: "", arguments: "" };
-              }
+              if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", name: "", arguments: "" };
               if (tc.id) toolCalls[tc.index].id = tc.id;
               if (tc.function?.name) toolCalls[tc.index].name = tc.function.name;
               if (tc.function?.arguments) toolCalls[tc.index].arguments += tc.function.arguments;
@@ -467,53 +737,50 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         }
       }
 
-      // Push assistant message
+      // Push assistant turn
       messages.push({
         role: "assistant",
-        content: iterationText || null,
+        content: iterText || null,
         tool_calls: toolCalls.length
-          ? toolCalls.map((tc) => ({
-              id: tc.id,
-              type: "function",
-              function: { name: tc.name, arguments: tc.arguments },
-            }))
+          ? toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: tc.arguments } }))
           : undefined,
       });
 
-      // Execute tool calls
+      // Execute tools
       if (toolCalls.length > 0) {
         continueLoop = true;
 
         for (const tc of toolCalls) {
           if (!tc.name) continue;
-          toolCallsUsed.push(tc.name);
+          // Skip internal tools from tracking
+          if (tc.name !== "message_notify" && tc.name !== "task_done") {
+            toolsUsed.push(tc.name);
+          }
 
           let args: Record<string, any> = {};
           try { args = JSON.parse(tc.arguments || "{}"); } catch {}
 
-          // Notify frontend of tool call start
-          sendEvent("tool_call", {
-            name: tc.name,
-            args,
-            status: "running",
-          });
+          sendEvent("tool_call", { name: tc.name, args, status: "running" });
 
-          const result = await executeTool(tc.name, args, req.params.projectId);
+          const result = await executeTool(tc.name, args, req.params.projectId, sendEvent);
 
-          // Notify frontend of tool result
           sendEvent("tool_result", {
             name: tc.name,
-            result: result.length > 2000 ? result.slice(0, 2000) + "\n...[truncated]" : result,
+            result: result.length > 3000 ? result.slice(0, 3000) + "\n...[truncated]" : result,
             status: "done",
           });
 
-          // Append truncated result for context
-          const truncatedForContext = result.length > 6000 ? result.slice(0, 6000) + "\n...[truncated]" : result;
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
-            content: truncatedForContext,
+            content: result.length > 8000 ? result.slice(0, 8000) + "\n...[truncated]" : result,
           });
+
+          // If task_done called, break the loop
+          if (tc.name === "task_done") {
+            continueLoop = false;
+            break;
+          }
         }
       } else {
         continueLoop = false;
@@ -526,7 +793,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
       projectId: req.params.projectId,
       role: "assistant" as const,
       content: fullContent,
-      thinkingSteps: toolCallsUsed.length > 0 ? toolCallsUsed : null,
+      thinkingSteps: toolsUsed.length > 0 ? toolsUsed : null,
       attachmentUrl: null,
       createdAt: new Date().toISOString(),
     };
@@ -535,9 +802,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
 
     // Deduct credit
     if (user) {
-      updateRecord<User>("users", userId, {
-        creditsUsed: (user.creditsUsed ?? 0) + 1,
-      });
+      updateRecord<User>("users", userId, { creditsUsed: (user.creditsUsed ?? 0) + 1 });
     }
 
     sendEvent("done", aiMsg);
