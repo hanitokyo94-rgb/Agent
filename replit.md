@@ -1,82 +1,68 @@
 # AI Builder Platform
 
-## Overview
+A full-stack AI coding assistant platform (like Rocket.new / Replit Agent) where users create projects, chat with an AI agent, and have code built and deployed automatically.
 
-A full AI Builder Platform (like Rocket.new) built as a pnpm workspace monorepo with TypeScript. Features streaming AI chat, project management, auth, onboarding, credits system, and settings with subscriptions.
+## Run & Operate
+
+- **Start app (dev):** `PORT=23863 BASE_PATH=/ pnpm --filter @workspace/app run dev`
+- **Start API (dev):** `pnpm --filter @workspace/api-server run dev`
+- **Typecheck:** `pnpm run typecheck`
+- **API codegen:** `pnpm --filter @workspace/api-spec run codegen`
+
+Required env vars:
+- `AI_API_KEY` — OpenAI-compatible API key (required for agent to work)
+- `AI_BASE_URL` — Optional custom base URL (e.g. OpenRouter)
+- `AI_MODEL` — Model name, default `anthropic/claude-opus-4-6`
 
 ## Stack
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **Frontend**: React + Vite + TailwindCSS v4 + Wouter + @tanstack/react-query
-- **Backend**: Express 5 (ESM), JSON file storage (`data/` dir), OpenAI SDK with SSE streaming
-- **Validation**: Zod (`lib/api-zod`), Orval codegen from OpenAPI spec
-- **API codegen**: Orval (from OpenAPI spec in `lib/api-spec/openapi.yaml`)
-- **Auth**: Bearer token (base64 encoded userId:timestamp), stored in localStorage
-- **AI**: OpenAI-compatible API via env vars `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL`
+- **Monorepo:** pnpm workspaces, Node 24, TypeScript 5.9
+- **Frontend:** React + Vite + TailwindCSS v4 + Wouter + TanStack Query
+- **Backend:** Express 5 (ESM), JSON file storage (`data/` dir), OpenAI SDK with SSE streaming
+- **Validation:** Zod (`lib/api-zod`), Orval codegen from `lib/api-spec/openapi.yaml`
+- **Auth:** Bearer token (base64 `userId:timestamp`), stored in `localStorage`
 
-## Key Commands
+## Where things live
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/api-server run build` — build API server (esbuild)
-- `pnpm --filter @workspace/api-server run dev` — build + run API server
+- `artifacts/app/src/pages/AgentChat.tsx` — main chat UI (redesigned: no avatars, file diff chips, localStorage persistence)
+- `artifacts/app/src/components/MyFiles.tsx` — iOS-style file attach modal
+- `artifacts/api-server/src/routes/agent-stream.ts` — SSE streaming agent endpoint
+- `artifacts/api-server/src/routes/` — all API routes
+- `lib/api-spec/openapi.yaml` — source of truth for API contract
+- `data/` — JSON file storage (gitignored): `users.json`, `projects.json`, `messages.json`
+- `.local/skills/bobo-auth/SKILL.md` — OAuth skill guide
+- `.local/skills/bobodata/SKILL.md` — local data storage skill guide
+- `bobo.md` — project plan & task tracker
 
-## Workspace Packages
+## Architecture decisions
 
-- `artifacts/app` — React+Vite frontend, port from `$PORT` env var, previewPath `/`
-- `artifacts/api-server` — Express 5 API server, port 8080, paths `/api`
-- `lib/api-spec` — OpenAPI spec + Orval config
-- `lib/api-client-react` — Generated React Query hooks
-- `lib/api-zod` — Generated Zod schemas (only exports from `./generated/api`)
-- `lib/api-types` — Shared TypeScript types
+- JSON file storage (not a DB) — simple, zero-config, fine for early stage
+- SSE streaming with named events: `chunk`, `notify`, `task_done`, `tool_call`, `tool_result`, `deploy_done`, `done`, `error`
+- localStorage message persistence (`chat-messages-${projectId}`) for resilience against page refresh/background kills
+- Agent stream route at `/api/projects/:id/agent/stream` (POST → SSE)
+- `lib/api-zod/src/index.ts` must only export from `./generated/api` (not `./generated/types`) — avoids duplicate exports
 
-## API Routes
+## Product
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /api/healthz | Health check |
-| POST | /api/auth/register | Register user |
-| POST | /api/auth/login | Login |
-| POST | /api/auth/logout | Logout |
-| GET | /api/auth/me | Get current user |
-| POST | /api/user/onboarding | Complete onboarding |
-| PUT | /api/user/profile | Update profile |
-| POST | /api/user/avatar | Upload avatar |
-| GET | /api/projects | List projects |
-| POST | /api/projects | Create project |
-| POST | /api/projects/generate-name | AI-generate project name |
-| GET | /api/projects/:id | Get project |
-| PUT | /api/projects/:id | Update project |
-| DELETE | /api/projects/:id | Delete project |
-| GET | /api/projects/:id/messages | List messages |
-| POST | /api/projects/:id/messages | Send message (non-streaming) |
-| POST | /api/projects/:id/messages/stream | Send message (SSE streaming) |
-| POST | /api/projects/:id/upload | Upload file |
+- Landing page with hero, auth modal (sign in / register)
+- Onboarding (3-step: skill level, category, ad source)
+- Dashboard — project list, create with examples
+- Chat (`/chat/:projectId`) — clean minimal UI like ChatGPT/Claude: user gray bubbles, assistant plain text, file diff chips with +N/-N line counts, collapsible tool steps, code viewer modal, MyFiles attach modal, connection status indicator
+- Sidebar — credits bar, project list, user avatar, settings link
+- Settings — profile, subscription plans, appearance
 
-## Data Storage
+## User preferences
 
-JSON files stored in `data/` directory (gitignored):
-- `data/users.json` — User records with credits, plan, language, country
-- `data/projects.json` — Project records
-- `data/messages.json` — Message history with thinkingSteps
+- Chat UI: no agent avatar, clean/minimal like ChatGPT or Claude
+- File ops shown as clickable chips with `+added -removed` line counts
+- MyFiles uses iOS-style modal with Upload + Project Files tabs
 
-## Features
+## Gotchas
 
-- **Auth Modal**: Beautiful slide-up auth modal on landing page
-- **Onboarding**: 3-step onboarding (skill level, category, ad source)
-- **Dashboard**: Project creation with examples, recent projects list
-- **Chat**: SSE streaming with thinking steps progress bar, Markdown rendering, stop button
-- **Sidebar**: Fixed sidebar with credits bar, project list, user info (mobile + desktop)
-- **Settings**: Profile, subscription plans, appearance tabs
-- **Language detection**: Auto-detects Arabic/English from browser, adjusts AI responses
-- **Country detection**: Detects from timezone
+- `artifacts/app: web` workflow fails (port conflict with "Start application") — use "Start application" instead
+- Bearer token decode: `Buffer.from(token, 'base64').toString().split(':')[0]` = userId
+- Codegen regenerates types — if typecheck fails, check `lib/api-zod/src/index.ts` has only one export line
 
-## Important Notes
+## Pointers
 
-- `lib/api-zod/src/index.ts` must only export from `./generated/api` (NOT `./generated/types`) to avoid duplicate exports
-- The codegen script regenerates zod types; if typecheck fails, ensure index.ts only has one export line
-- Bearer token decoding: `Buffer.from(token, 'base64').toString().split(':')[0]` = userId
-- SSE streaming events: `thinking` → `chunk` → `done` (or `error`)
+- Skills: `.local/skills/bobo-auth/`, `.local/skills/bobodata/`, `.local/skills/react-vite/`
