@@ -83,6 +83,117 @@ const EXAMPLES = [
   "Explain how JWT authentication works",
 ];
 
+// ── Skills system ─────────────────────────────────────────────────────
+interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  prompt: string;
+  category: "builtin" | "custom";
+  source?: string;
+  createdAt?: string;
+}
+
+const BUILT_IN_SKILLS: Skill[] = [
+  {
+    id: "plan",
+    name: "plan",
+    description: "Create a detailed plan before building",
+    icon: "📋",
+    prompt: "PLAN_MODE: Before writing any code or executing any commands, present a complete numbered plan of what you will do. Describe each step clearly, including files to create, packages to install, and commands to run. End your plan with: '✅ Plan ready — reply with **go** to start building, or tell me what to change.' Do NOT execute any tools until the user approves.\n\nUser request: ",
+    category: "builtin",
+  },
+  {
+    id: "fix",
+    name: "fix",
+    description: "Diagnose and fix all bugs and errors",
+    icon: "🔧",
+    prompt: "Review the entire project and fix all bugs, errors, and issues. Check: console errors, TypeScript errors, broken imports, missing dependencies, incorrect logic. Show each fix clearly.",
+    category: "builtin",
+  },
+  {
+    id: "explain",
+    name: "explain",
+    description: "Explain the codebase architecture and logic",
+    icon: "💡",
+    prompt: "Explain the current project in detail: overall architecture, file structure, how the main components work, data flow, and key design decisions. Be thorough but clear.",
+    category: "builtin",
+  },
+  {
+    id: "deploy",
+    name: "deploy",
+    description: "Deploy the project to Vercel",
+    icon: "🚀",
+    prompt: "Deploy this project to Vercel. Ensure it's production-ready (remove debug logs, check env vars, verify build succeeds) then deploy and return the live URL.",
+    category: "builtin",
+  },
+  {
+    id: "optimize",
+    name: "optimize",
+    description: "Optimize performance and code quality",
+    icon: "⚡",
+    prompt: "Optimize this project for: bundle size, load performance, code quality, and maintainability. Check for unused imports, large dependencies, performance bottlenecks, and code duplication. Apply fixes.",
+    category: "builtin",
+  },
+  {
+    id: "test",
+    name: "test",
+    description: "Write comprehensive tests",
+    icon: "🧪",
+    prompt: "Write comprehensive tests for this project using the appropriate testing framework. Include unit tests, integration tests, and edge cases. Aim for high coverage of critical paths.",
+    category: "builtin",
+  },
+  {
+    id: "document",
+    name: "document",
+    description: "Add documentation, comments and README",
+    icon: "📝",
+    prompt: "Add proper documentation to this project: JSDoc/TSDoc comments on all functions and classes, a comprehensive README.md with setup instructions, usage examples, and API docs.",
+    category: "builtin",
+  },
+  {
+    id: "refactor",
+    name: "refactor",
+    description: "Refactor for cleaner structure",
+    icon: "♻️",
+    prompt: "Refactor this project for better structure, readability, and maintainability. Apply clean code principles, break large files into smaller modules, extract reusable utilities, and improve naming.",
+    category: "builtin",
+  },
+  {
+    id: "debug",
+    name: "debug",
+    description: "Step-by-step debugging session",
+    icon: "🐛",
+    prompt: "Help me debug this project step by step. Check all logs, trace the execution flow, identify the root cause of issues, and propose targeted fixes.",
+    category: "builtin",
+  },
+  {
+    id: "security",
+    name: "security",
+    description: "Security audit and hardening",
+    icon: "🔒",
+    prompt: "Perform a security audit of this project. Check for: exposed secrets, SQL injection, XSS, CSRF, insecure dependencies, missing auth guards, input validation issues. Fix all vulnerabilities found.",
+    category: "builtin",
+  },
+];
+
+const SKILLS_STORAGE_KEY = "user-skills-v1";
+
+function loadUserSkills(): Skill[] {
+  try {
+    const raw = localStorage.getItem(SKILLS_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as Skill[];
+  } catch {}
+  return [];
+}
+
+function saveUserSkills(skills: Skill[]) {
+  try {
+    localStorage.setItem(SKILLS_STORAGE_KEY, JSON.stringify(skills));
+  } catch {}
+}
+
 function getFileOp(tool: ToolEvent): FileOp | null {
   if (tool.name === "file_write") {
     const lines = tool.args.content ? tool.args.content.split("\n").length : 0;
@@ -152,10 +263,16 @@ export function AgentChat() {
   const [agentMode, setAgentMode] = useState<"plan" | "build">(
     () => (localStorage.getItem("agentMode") as "plan" | "build") ?? "build"
   );
+  const [slashQuery, setSlashQuery] = useState("");
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [activeSkill, setActiveSkill] = useState<Skill | null>(null);
+  const [userSkills, setUserSkills] = useState<Skill[]>(() => loadUserSkills());
+  const [showSkillsManager, setShowSkillsManager] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const slashMenuRef = useRef<HTMLDivElement>(null);
   const prevIsStreamingRef = useRef(false);
   const queryClient = useQueryClient();
 
@@ -324,10 +441,45 @@ export function AgentChat() {
   }
 
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setInput(e.target.value);
+    const val = e.target.value;
+    setInput(val);
     e.target.style.height = "auto";
     e.target.style.height = Math.min(e.target.scrollHeight, 220) + "px";
+
+    // Detect slash command — show menu when input starts with "/" and has no space yet
+    if (val.startsWith("/") && !val.includes(" ") && !activeSkill) {
+      setSlashQuery(val.slice(1));
+      setShowSlashMenu(true);
+    } else {
+      setShowSlashMenu(false);
+    }
   }
+
+  function selectSkill(skill: Skill) {
+    setActiveSkill(skill);
+    setInput("");
+    setShowSlashMenu(false);
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }
+
+  function clearActiveSkill() {
+    setActiveSkill(null);
+    setInput("");
+  }
+
+  function addUserSkill(skill: Skill) {
+    const updated = [...userSkills.filter((s) => s.id !== skill.id), skill];
+    setUserSkills(updated);
+    saveUserSkills(updated);
+  }
+
+  function deleteUserSkill(id: string) {
+    const updated = userSkills.filter((s) => s.id !== id);
+    setUserSkills(updated);
+    saveUserSkills(updated);
+  }
+
+  const allSkills = [...BUILT_IN_SKILLS, ...userSkills];
 
   const sendMessage = useCallback(async (overrideContent?: string) => {
     const text = (overrideContent ?? input).trim();
@@ -373,10 +525,19 @@ export function AgentChat() {
     setNotifyBanners((prev) => ({ ...prev, [aiMsgId]: [] }));
 
     const streamKey = `chat-stream-${projectId}`;
-    const planPrefix = agentMode === "plan"
-      ? "PLAN_MODE: Before writing any code or executing any commands, present a complete numbered plan of what you will do. Describe each step clearly. End your plan with: '✅ Plan ready — reply with **go** to start building, or tell me what to change.' Do NOT execute any tools until the user approves.\n\nUser request: "
-      : "";
-    const finalText = planPrefix + text;
+    // Build final text: active skill prompt → plan prefix → user text
+    let finalText = text;
+    if (activeSkill) {
+      finalText = activeSkill.id === "plan"
+        ? activeSkill.prompt + text
+        : text
+          ? `${activeSkill.prompt}\n\nUser request: ${text}`
+          : activeSkill.prompt;
+      setActiveSkill(null);
+    } else if (agentMode === "plan") {
+      const planPrefix = "PLAN_MODE: Before writing any code or executing any commands, present a complete numbered plan of what you will do. Describe each step clearly. End your plan with: '✅ Plan ready — reply with **go** to start building, or tell me what to change.' Do NOT execute any tools until the user approves.\n\nUser request: ";
+      finalText = planPrefix + text;
+    }
 
     try {
       const res = await fetch(`/api/projects/${projectId}/agent/stream`, {
@@ -801,6 +962,26 @@ export function AgentChat() {
                 </div>
               )}
 
+              {/* Active skill badge */}
+              {activeSkill && (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-sm">
+                    <span className="text-base leading-none">{activeSkill.icon}</span>
+                    <span className="font-medium text-primary">/{activeSkill.name}</span>
+                    <span className="text-primary/60 text-xs hidden sm:inline">— {activeSkill.description}</span>
+                    <button
+                      onClick={clearActiveSkill}
+                      className="ml-1 text-primary/50 hover:text-primary transition-colors"
+                      title="Remove skill"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Message queue indicator */}
               {messageQueue.length > 0 && (
                 <div className="flex items-center gap-2 px-1">
@@ -823,13 +1004,32 @@ export function AgentChat() {
                 </div>
               )}
 
+              <div className="relative">
+                {/* Slash command menu — floats above input */}
+                {showSlashMenu && (
+                  <div ref={slashMenuRef} className="absolute bottom-full left-0 right-0 mb-2 z-50">
+                    <SlashCommandMenu
+                      query={slashQuery}
+                      allSkills={allSkills}
+                      onSelect={selectSkill}
+                      onManage={() => { setShowSlashMenu(false); setShowSkillsManager(true); }}
+                    />
+                  </div>
+                )}
+
               <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden focus-within:border-border transition-all">
                 <textarea
                   ref={textareaRef}
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  placeholder={isStreaming ? "Type to queue next message..." : "Ask anything or describe what to build..."}
+                  placeholder={
+                    activeSkill
+                      ? `Describe what you want to ${activeSkill.name}... (optional)`
+                      : isStreaming
+                      ? "Type to queue next message..."
+                      : "Ask anything, or type / for skills..."
+                  }
                   rows={1}
                   className="w-full px-4 pt-3.5 pb-2 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/70 max-h-[220px]"
                 />
@@ -844,6 +1044,18 @@ export function AgentChat() {
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
                       </svg>
+                    </button>
+
+                    {/* Skills slash button */}
+                    <button
+                      onClick={() => { setShowSkillsManager(true); }}
+                      className="flex items-center gap-1 px-2 py-1.5 rounded-xl hover:bg-muted transition-colors text-muted-foreground hover:text-foreground text-[11px] font-medium"
+                      title="Skills — or type / in chat"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                      </svg>
+                      <span className="hidden sm:inline">Skills</span>
                     </button>
 
                     {/* Plan / Build mode toggle */}
@@ -936,6 +1148,7 @@ export function AgentChat() {
                   )}
                 </div>
               </div>
+              </div>{/* end .relative slash wrapper */}
               <p className="text-center text-xs text-muted-foreground/40">AI can make mistakes. ⌘+Enter to send</p>
             </div>
           </div>
@@ -975,6 +1188,16 @@ export function AgentChat() {
       )}
       {codeViewFile && (
         <CodeViewModal file={codeViewFile} onClose={() => setCodeViewFile(null)} />
+      )}
+      {showSkillsManager && (
+        <SkillsManagerModal
+          allSkills={allSkills}
+          userSkills={userSkills}
+          onSelect={(skill) => { selectSkill(skill); setShowSkillsManager(false); }}
+          onAdd={addUserSkill}
+          onDelete={deleteUserSkill}
+          onClose={() => setShowSkillsManager(false)}
+        />
       )}
     </div>
   );
@@ -1508,6 +1731,391 @@ function CodeViewModal({ file, onClose }: { file: { path: string; content: strin
         </div>
         <div className="px-4 py-2 border-t border-border bg-muted/20 shrink-0">
           <p className="text-xs text-muted-foreground font-mono">{file.path}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Slash Command Menu ────────────────────────────────────────────────
+function SlashCommandMenu({
+  query,
+  allSkills,
+  onSelect,
+  onManage,
+}: {
+  query: string;
+  allSkills: Skill[];
+  onSelect: (s: Skill) => void;
+  onManage: () => void;
+}) {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const filtered = allSkills.filter(
+    (s) =>
+      !query ||
+      s.name.toLowerCase().includes(query.toLowerCase()) ||
+      s.description.toLowerCase().includes(query.toLowerCase())
+  );
+
+  useEffect(() => { setActiveIdx(0); }, [query]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1)); }
+      if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); }
+      if (e.key === "Enter" && filtered[activeIdx]) { e.preventDefault(); onSelect(filtered[activeIdx]); }
+      if (e.key === "Escape") { onManage(); }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [filtered, activeIdx, onSelect, onManage]);
+
+  return (
+    <div className="bg-popover border border-border rounded-2xl shadow-xl overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
+        <p className="text-xs font-semibold text-muted-foreground">Skills</p>
+        <span className="text-[10px] text-muted-foreground/60 hidden sm:block">↑↓ navigate · Enter select · Esc manage</span>
+      </div>
+      <div className="max-h-60 overflow-y-auto py-1">
+        {filtered.map((skill, i) => (
+          <button
+            key={skill.id}
+            onClick={() => onSelect(skill)}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+              i === activeIdx ? "bg-muted" : "hover:bg-muted/60"
+            )}
+          >
+            <span className="text-lg shrink-0 leading-none">{skill.icon}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">/{skill.name}</p>
+              <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
+            </div>
+            {skill.category === "custom" && (
+              <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-full font-medium shrink-0">Custom</span>
+            )}
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <div className="flex flex-col items-center py-6 text-center px-4">
+            <p className="text-sm text-muted-foreground">No skills match "{query}"</p>
+            <button onClick={onManage} className="text-xs text-primary mt-2 hover:underline">
+              Import from GitHub →
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="border-t border-border/50 px-3 py-2 flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">{filtered.length} skills</span>
+        <button
+          onClick={onManage}
+          className="text-xs text-primary hover:text-primary/80 transition-colors font-medium"
+        >
+          + Manage skills
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Skills Manager Modal ───────────────────────────────────────────────
+function SkillsManagerModal({
+  allSkills,
+  userSkills,
+  onSelect,
+  onAdd,
+  onDelete,
+  onClose,
+}: {
+  allSkills: Skill[];
+  userSkills: Skill[];
+  onSelect: (s: Skill) => void;
+  onAdd: (s: Skill) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"all" | "import">("all");
+  const [githubUrl, setGithubUrl] = useState("");
+  const [importName, setImportName] = useState("");
+  const [importDesc, setImportDesc] = useState("");
+  const [importIcon, setImportIcon] = useState("⚡");
+  const [importPrompt, setImportPrompt] = useState("");
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState("");
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  function close() {
+    setVisible(false);
+    setTimeout(onClose, 280);
+  }
+
+  async function fetchFromGithub() {
+    if (!githubUrl.trim()) return;
+    setFetching(true);
+    setFetchError("");
+    try {
+      // Convert github.com URL to raw.githubusercontent.com
+      let rawUrl = githubUrl.trim();
+      if (rawUrl.includes("github.com") && !rawUrl.includes("raw.githubusercontent.com")) {
+        rawUrl = rawUrl
+          .replace("github.com", "raw.githubusercontent.com")
+          .replace("/blob/", "/");
+      }
+      const res = await fetch(rawUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      setImportPrompt(text);
+
+      // Auto-fill name from URL
+      if (!importName) {
+        const parts = rawUrl.split("/");
+        const filename = parts[parts.length - 1].replace(/\.[^.]+$/, "");
+        setImportName(filename.replace(/[-_]/g, " "));
+      }
+    } catch (e: any) {
+      setFetchError("Failed to fetch — make sure it's a valid raw GitHub URL or file link");
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  function saveImport() {
+    if (!importName.trim() || !importPrompt.trim()) return;
+    const skill: Skill = {
+      id: `custom-${Date.now()}`,
+      name: importName.toLowerCase().replace(/\s+/g, "-"),
+      description: importDesc || `Custom skill: ${importName}`,
+      icon: importIcon,
+      prompt: importPrompt,
+      category: "custom",
+      source: githubUrl || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    onAdd(skill);
+    setGithubUrl(""); setImportName(""); setImportDesc(""); setImportPrompt(""); setImportIcon("⚡");
+    setTab("all");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div
+        className={cn("fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-280", visible ? "opacity-100" : "opacity-0")}
+        onClick={close}
+      />
+      <div className={cn(
+        "relative bg-background w-full sm:max-w-lg sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden transition-all duration-280 ease-out max-h-[90dvh]",
+        visible ? "translate-y-0 opacity-100 sm:scale-100" : "translate-y-full sm:translate-y-0 opacity-0 sm:scale-95"
+      )}>
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
+          <div className="w-10 h-1 bg-muted-foreground/20 rounded-full" />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
+          <div className="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+            <h2 className="font-semibold text-[15px]">Skills</h2>
+          </div>
+          <button onClick={close} className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 px-4 pt-3 pb-0 shrink-0">
+          <button
+            onClick={() => setTab("all")}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+              tab === "all" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            All Skills ({allSkills.length})
+          </button>
+          <button
+            onClick={() => setTab("import")}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+              tab === "import" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            + Import from GitHub
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {tab === "all" && (
+            <div className="py-3">
+              {/* Built-in */}
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide px-5 mb-2">Built-in</p>
+              {BUILT_IN_SKILLS.map((skill) => (
+                <button
+                  key={skill.id}
+                  onClick={() => onSelect(skill)}
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-muted/60 transition-colors text-left"
+                >
+                  <span className="text-xl shrink-0 leading-none">{skill.icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">/{skill.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">Use →</span>
+                </button>
+              ))}
+
+              {/* Custom */}
+              {userSkills.length > 0 && (
+                <>
+                  <div className="px-5 pt-4 pb-2">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">My Skills</p>
+                  </div>
+                  {userSkills.map((skill) => (
+                    <div key={skill.id} className="flex items-center gap-1 px-3">
+                      <button
+                        onClick={() => onSelect(skill)}
+                        className="flex-1 flex items-center gap-3 px-2 py-3 hover:bg-muted/60 rounded-xl transition-colors text-left"
+                      >
+                        <span className="text-xl shrink-0 leading-none">{skill.icon}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">/{skill.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
+                          {skill.source && (
+                            <p className="text-[10px] text-primary/60 truncate mt-0.5">{skill.source}</p>
+                          )}
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => onDelete(skill.id)}
+                        className="p-2 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                        title="Delete skill"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>
+                          <path d="M9 6V4h6v2"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {userSkills.length === 0 && (
+                <div className="px-5 pt-4 pb-2">
+                  <div className="border border-dashed border-border rounded-2xl p-5 text-center">
+                    <p className="text-sm text-muted-foreground mb-2">No custom skills yet</p>
+                    <button
+                      onClick={() => setTab("import")}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Import your first skill from GitHub →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "import" && (
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <p className="text-sm font-medium mb-1">GitHub file URL</p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Paste a link to any GitHub file containing agent instructions. Works with github.com or raw links.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={githubUrl}
+                    onChange={(e) => setGithubUrl(e.target.value)}
+                    placeholder="https://github.com/user/repo/blob/main/skill.md"
+                    className="flex-1 px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:border-primary transition-all"
+                  />
+                  <button
+                    onClick={fetchFromGithub}
+                    disabled={fetching || !githubUrl.trim()}
+                    className="px-4 py-2.5 rounded-xl bg-foreground text-background text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-all shrink-0 active:scale-95"
+                  >
+                    {fetching ? "..." : "Fetch"}
+                  </button>
+                </div>
+                {fetchError && (
+                  <p className="text-xs text-destructive mt-2">{fetchError}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium block mb-1.5">Name</label>
+                  <input
+                    type="text"
+                    value={importName}
+                    onChange={(e) => setImportName(e.target.value)}
+                    placeholder="my-skill"
+                    className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:border-primary transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium block mb-1.5">Icon</label>
+                  <input
+                    type="text"
+                    value={importIcon}
+                    onChange={(e) => setImportIcon(e.target.value)}
+                    placeholder="⚡"
+                    className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:border-primary transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium block mb-1.5">Description</label>
+                <input
+                  type="text"
+                  value={importDesc}
+                  onChange={(e) => setImportDesc(e.target.value)}
+                  placeholder="What does this skill do?"
+                  className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:border-primary transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium block mb-1.5">Prompt / Instructions</label>
+                <textarea
+                  value={importPrompt}
+                  onChange={(e) => setImportPrompt(e.target.value)}
+                  placeholder="The instructions that will be sent to the agent when this skill is used..."
+                  rows={5}
+                  className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:border-primary transition-all resize-none"
+                />
+              </div>
+
+              <button
+                onClick={saveImport}
+                disabled={!importName.trim() || !importPrompt.trim()}
+                className="w-full py-2.5 rounded-xl bg-foreground text-background text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-all active:scale-95"
+              >
+                Save skill
+              </button>
+
+              <div className="bg-muted/60 border border-border/50 rounded-xl p-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  <strong className="text-foreground">Tip:</strong> Skills are saved to your browser and available in all your projects. You can use any plain text or markdown file as a skill — just paste the instructions directly if you don't have a GitHub link.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
