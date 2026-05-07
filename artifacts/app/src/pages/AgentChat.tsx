@@ -149,6 +149,9 @@ export function AgentChat() {
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "streaming" | "error">("idle");
   const [secretRequests, setSecretRequests] = useState<SecretRequest[]>([]);
   const [messageQueue, setMessageQueue] = useState<string[]>([]);
+  const [agentMode, setAgentMode] = useState<"plan" | "build">(
+    () => (localStorage.getItem("agentMode") as "plan" | "build") ?? "build"
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -163,33 +166,57 @@ export function AgentChat() {
     query: { queryKey: getListMessagesQueryKey(projectId) },
   });
 
-  // Persist messages to localStorage
+  // Persist messages to localStorage (include streaming ones for real-time recovery)
   useEffect(() => {
     if (streamingMessages.length > 0) {
       try {
-        const toSave = streamingMessages.filter((m) => !m.streaming);
-        localStorage.setItem(`chat-messages-${projectId}`, JSON.stringify(toSave));
+        localStorage.setItem(`chat-messages-${projectId}`, JSON.stringify(streamingMessages));
       } catch {}
     }
   }, [streamingMessages, projectId]);
+
+  // Recover incomplete streaming message after page refresh
+  useEffect(() => {
+    const streamKey = `chat-stream-${projectId}`;
+    const recovered = localStorage.getItem(streamKey);
+    if (recovered) {
+      try {
+        const { id, content, ts } = JSON.parse(recovered);
+        if (Date.now() - ts < 30 * 60 * 1000) {
+          setStreamingMessages((prev) => {
+            if (prev.find((m) => m.id === id)) return prev;
+            return [
+              ...prev,
+              { id, role: "assistant" as const, content: content + "\n\n*[Recovered after disconnection]*", streaming: false, createdAt: new Date().toISOString() },
+            ];
+          });
+        }
+      } catch {}
+      localStorage.removeItem(streamKey);
+    }
+  }, [projectId]);
 
   // Load messages from server or localStorage
   useEffect(() => {
     if (!isStreaming) {
       if (savedMessages.length > 0) {
-        setStreamingMessages(
-          (savedMessages as any[]).map((m) => ({
+        setStreamingMessages((prev) => {
+          const serverCount = (savedMessages as any[]).length;
+          const localFinished = prev.filter((m) => !m.streaming).length;
+          // Don't override if local has more finalized messages (streaming just finished)
+          if (prev.length > 0 && localFinished >= serverCount) return prev;
+          return (savedMessages as any[]).map((m) => ({
             id: m.id, role: m.role, content: m.content,
             thinkingSteps: m.thinkingSteps, streaming: false, createdAt: m.createdAt,
-          }))
-        );
+          }));
+        });
       } else {
         try {
           const cached = localStorage.getItem(`chat-messages-${projectId}`);
           if (cached) {
             const parsed = JSON.parse(cached);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              setStreamingMessages(parsed);
+              setStreamingMessages(parsed.map((m: any) => ({ ...m, streaming: false })));
             }
           }
         } catch {}
@@ -345,6 +372,12 @@ export function AgentChat() {
     setToolEvents((prev) => ({ ...prev, [aiMsgId]: [] }));
     setNotifyBanners((prev) => ({ ...prev, [aiMsgId]: [] }));
 
+    const streamKey = `chat-stream-${projectId}`;
+    const planPrefix = agentMode === "plan"
+      ? "PLAN_MODE: Before writing any code or executing any commands, present a complete numbered plan of what you will do. Describe each step clearly. End your plan with: '✅ Plan ready — reply with **go** to start building, or tell me what to change.' Do NOT execute any tools until the user approves.\n\nUser request: "
+      : "";
+    const finalText = planPrefix + text;
+
     try {
       const res = await fetch(`/api/projects/${projectId}/agent/stream`, {
         method: "POST",
@@ -352,7 +385,7 @@ export function AgentChat() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ content: text }),
+        body: JSON.stringify({ content: finalText, mode: agentMode }),
         signal: abortRef.current.signal,
       });
 
@@ -381,6 +414,10 @@ export function AgentChat() {
                 case "chunk":
                   if (data.delta !== undefined) {
                     aiContent += data.delta;
+                    // Save every chunk to localStorage for real-time recovery
+                    try {
+                      localStorage.setItem(streamKey, JSON.stringify({ id: aiMsgId, content: aiContent, ts: Date.now() }));
+                    } catch {}
                     setStreamingMessages((prev) =>
                       prev.map((m) => m.id === aiMsgId ? { ...m, content: aiContent, streaming: true } : m)
                     );
@@ -444,6 +481,7 @@ export function AgentChat() {
         }
       }
       localStorage.removeItem(PENDING_KEY(projectId));
+      localStorage.removeItem(streamKey);
       setConnectionStatus("idle");
     } catch (err: any) {
       if (err.name !== "AbortError") {
@@ -462,6 +500,7 @@ export function AgentChat() {
         );
       }
       localStorage.removeItem(PENDING_KEY(projectId));
+      localStorage.removeItem(streamKey);
     } finally {
       setIsStreaming(false);
       loadFiles();
@@ -795,7 +834,7 @@ export function AgentChat() {
                   className="w-full px-4 pt-3.5 pb-2 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/70 max-h-[220px]"
                 />
                 <div className="flex items-center justify-between px-3 pb-2.5">
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setShowMyFiles(true)}
                       disabled={isStreaming}
@@ -806,8 +845,52 @@ export function AgentChat() {
                         <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
                       </svg>
                     </button>
+
+                    {/* Plan / Build mode toggle */}
+                    <div className="flex items-center bg-muted/60 rounded-lg p-0.5">
+                      <button
+                        onClick={() => {
+                          setAgentMode("plan");
+                          localStorage.setItem("agentMode", "plan");
+                        }}
+                        title="Plan mode: agent proposes a plan before executing"
+                        className={cn(
+                          "flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-all",
+                          agentMode === "plan"
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                          <line x1="8" y1="18" x2="21" y2="18"/>
+                          <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/>
+                          <line x1="3" y1="18" x2="3.01" y2="18"/>
+                        </svg>
+                        Plan
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAgentMode("build");
+                          localStorage.setItem("agentMode", "build");
+                        }}
+                        title="Build mode: agent executes immediately"
+                        className={cn(
+                          "flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-all",
+                          agentMode === "build"
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                        Build
+                      </button>
+                    </div>
+
                     {isStreaming && (
-                      <div className="flex items-center gap-1.5 ml-1">
+                      <div className="flex items-center gap-1.5 ml-0.5">
                         <div className="flex gap-0.5">
                           <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "0ms" }} />
                           <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -1098,6 +1181,74 @@ function StepsSummaryModal({
   );
 }
 
+// ── Skeleton animation while tool runs ───────────────────────────────
+function ToolActivitySkeleton({ toolName, args }: { toolName: string; args: Record<string, any> }) {
+  const isFileOp = ["file_write", "file_str_replace", "file_read"].includes(toolName);
+  const isShell = toolName === "shell_exec";
+  const isSearch = ["web_search", "fetch_url"].includes(toolName);
+  const isPkg = toolName === "install_packages";
+
+  const bar = (w: number, delay: number) => (
+    <div
+      key={delay}
+      className="h-2 rounded-full bg-muted-foreground/10 animate-pulse"
+      style={{ width: `${w}%`, animationDelay: `${delay}ms` }}
+    />
+  );
+
+  return (
+    <div className="space-y-2 py-1 max-w-xs">
+      {isFileOp && (
+        <>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-5 h-5 rounded bg-muted-foreground/8 animate-pulse" />
+            <div className="h-2 rounded-full bg-muted-foreground/10 animate-pulse w-32" />
+          </div>
+          {[92, 100, 78, 88, 65, 100, 55].map((w, i) => bar(w, i * 80))}
+        </>
+      )}
+      {isShell && (
+        <div className="rounded-xl bg-muted/40 border border-border/40 p-3 space-y-1.5">
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="text-emerald-500/50 font-mono text-xs">$</span>
+            <div className="h-2 rounded-full bg-muted-foreground/15 animate-pulse w-36" style={{ animationDelay: "0ms" }} />
+          </div>
+          {[70, 85, 50].map((w, i) => bar(w, i * 100))}
+        </div>
+      )}
+      {isSearch && (
+        <div className="space-y-2.5">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex gap-2.5" style={{ animationDelay: `${i * 120}ms` }}>
+              <div className="w-8 h-8 rounded-lg bg-muted-foreground/8 animate-pulse shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-2 rounded-full bg-muted-foreground/12 animate-pulse w-3/4" style={{ animationDelay: `${i * 120 + 60}ms` }} />
+                <div className="h-1.5 rounded-full bg-muted-foreground/8 animate-pulse w-full" style={{ animationDelay: `${i * 120 + 90}ms` }} />
+                <div className="h-1.5 rounded-full bg-muted-foreground/6 animate-pulse w-4/5" style={{ animationDelay: `${i * 120 + 120}ms` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {isPkg && (
+        <div className="space-y-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-2" style={{ animationDelay: `${i * 100}ms` }}>
+              <div className="w-3 h-3 rounded-sm bg-muted-foreground/15 animate-pulse shrink-0" />
+              <div className="h-2 rounded-full bg-muted-foreground/10 animate-pulse" style={{ width: `${[60, 80, 50][i]}%`, animationDelay: `${i * 100 + 50}ms` }} />
+            </div>
+          ))}
+        </div>
+      )}
+      {!isFileOp && !isShell && !isSearch && !isPkg && (
+        <div className="space-y-2">
+          {[75, 100, 60, 88].map((w, i) => bar(w, i * 90))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Message bubble ───────────────────────────────────────────────────
 function MessageBubble({
   msg, tools, notifies, onOpenCode,
@@ -1277,8 +1428,13 @@ function MessageBubble({
         </div>
       )}
 
+      {/* ── Skeleton activity while tool runs and no content yet ── */}
+      {msg.streaming && !msg.content && runningTool && (
+        <ToolActivitySkeleton toolName={runningTool.name} args={runningTool.args} />
+      )}
+
       {/* ── Message content ── */}
-      {(msg.content || (msg.streaming && !msg.content)) && (
+      {(msg.content || (msg.streaming && !msg.content && !runningTool)) && (
         <div className="text-sm leading-relaxed text-foreground">
           {msg.content ? (
             <>
