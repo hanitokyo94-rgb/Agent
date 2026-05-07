@@ -482,5 +482,57 @@
     ],
     "attachmentUrl": null,
     "createdAt": "2026-05-07T16:18:34.715Z"
+  },
+  {
+    "id": "fa6de471-a579-44f3-9bf0-8c5762430de7",
+    "projectId": "2c7693d4-9c91-46d4-b9f4-25d67ad0c456",
+    "role": "user",
+    "content": "موقع بسيط تعريفي مع داتا بيس تسجيل",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:07:15.583Z"
+  },
+  {
+    "id": "3b71ebf3-c8f1-48e9-a11c-9c8542ee9a2d",
+    "projectId": "2c7693d4-9c91-46d4-b9f4-25d67ad0c456",
+    "role": "assistant",
+    "content": "",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:07:23.001Z"
+  },
+  {
+    "id": "21b63306-1796-42bf-9d70-0df6c8941afa",
+    "projectId": "2c7693d4-9c91-46d4-b9f4-25d67ad0c456",
+    "role": "user",
+    "content": "نعم سوي",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:08:47.192Z"
+  },
+  {
+    "id": "ae9a56e8-88c5-40e3-ad2e-7da0f9211b35",
+    "projectId": "2c7693d4-9c91-46d4-b9f4-25d67ad0c456",
+    "role": "assistant",
+    "content": "",
+    "thinkingSteps": [
+      "file_list",
+      "get_secrets",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write"
+    ],
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:08:47.193Z"
   }
 ]

@@ -1816,12 +1816,15 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     return;
   }
 
-  const { content, customAI, githubToken } = req.body as {
+  const { content, customAI, githubToken, attachments } = req.body as {
     content?: string;
     customAI?: { baseUrl?: string; apiKey?: string; model?: string };
     githubToken?: string;
+    attachments?: Array<{ name: string; type: string; url?: string; content?: string; size?: number }>;
   };
-  if (!content) { res.status(400).json({ error: "content is required" }); return; }
+  if (!content && (!attachments || attachments.length === 0)) {
+    res.status(400).json({ error: "content is required" }); return;
+  }
 
   const users = findWhere<User>("users", (u) => u.id === userId);
   const user = users[0];
@@ -1881,6 +1884,60 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const wsDir = getWorkspaceDir(req.params.projectId);
   const wsFiles = fs.existsSync(wsDir) ? listFilesRecursive(wsDir).filter((f) => !f.isDir) : [];
 
+  // ── Process uploaded attachments ────────────────────────────────────
+  let attachmentContextLines: string[] = [];
+  const inlineImageParts: any[] = []; // vision image_url content parts
+
+  if (attachments && attachments.length > 0) {
+    const uploadsDir = path.join(wsDir, "uploads");
+    fs.mkdirSync(uploadsDir, { recursive: true });
+
+    for (const att of attachments) {
+      const safeName = att.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const destPath = path.join(uploadsDir, safeName);
+
+      try {
+        if (att.url && att.url.startsWith("data:")) {
+          // Decode base64 and write file
+          const base64 = att.url.split(",")[1];
+          if (base64) {
+            fs.writeFileSync(destPath, Buffer.from(base64, "base64"));
+          }
+        }
+
+        const isImage = att.type.startsWith("image/");
+        const isZip = att.type.includes("zip") || safeName.endsWith(".zip") || safeName.endsWith(".tar.gz");
+        const isText = att.content != null;
+
+        if (isImage) {
+          // Pass as vision image_url to model
+          if (att.url) {
+            inlineImageParts.push({
+              type: "image_url",
+              image_url: { url: att.url, detail: "high" },
+            });
+          }
+          attachmentContextLines.push(`📷 Image "${att.name}" → saved to uploads/${safeName} in workspace`);
+        } else if (isZip) {
+          // Extract ZIP into workspace root
+          try {
+            await execAsync(`unzip -o "${destPath}" -d "${wsDir}" 2>&1 | head -40`, { cwd: wsDir, timeout: 30000 });
+            attachmentContextLines.push(`🗜️ Archive "${att.name}" → extracted to workspace root`);
+          } catch {
+            attachmentContextLines.push(`🗜️ Archive "${att.name}" → saved to uploads/${safeName} (run: unzip uploads/${safeName})`);
+          }
+        } else if (isText && att.content) {
+          const snippet = att.content.length > 3000 ? att.content.slice(0, 3000) + "\n...[truncated]" : att.content;
+          attachmentContextLines.push(`📄 File "${att.name}" contents:\n\`\`\`\n${snippet}\n\`\`\``);
+        } else {
+          attachmentContextLines.push(`📎 File "${att.name}" (${att.type}) → saved to uploads/${safeName}`);
+        }
+      } catch (err: any) {
+        attachmentContextLines.push(`⚠️ Could not process "${att.name}": ${err.message}`);
+      }
+    }
+  }
+
   // Custom AI credentials (from user's own AI config in Settings)
   const useCustomAI = customAI?.apiKey && customAI.apiKey.trim().length > 0;
   const platformApiKey = process.env.AI_API_KEY ?? process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
@@ -1905,6 +1962,26 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     .slice(-20)
     .map((m: any) => ({ role: m.role, content: m.content }));
 
+  // Build the current user message with attachment context injected
+  const attachmentBlock = attachmentContextLines.length > 0
+    ? `\n\n[Attached files — already saved to workspace]\n${attachmentContextLines.join("\n")}`
+    : "";
+  const finalUserContent = (content ?? "") + attachmentBlock;
+
+  // If images were attached, use vision multi-part content
+  let currentUserMessage: any;
+  if (inlineImageParts.length > 0) {
+    currentUserMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: finalUserContent },
+        ...inlineImageParts,
+      ],
+    };
+  } else {
+    currentUserMessage = { role: "user", content: finalUserContent };
+  }
+
   const platformUrl = process.env.PLATFORM_URL ?? `https://${req.headers.host}`;
 
   const messages: any[] = [
@@ -1914,7 +1991,10 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         ? getMaxBuildersSystemPrompt(user?.language, wsFiles.length, platformUrl)
         : getSystemPrompt(user?.language, wsFiles.length, platformUrl),
     },
-    ...historyMessages,
+    // History excludes the last message (current one) to avoid duplication
+    ...historyMessages.slice(0, -1),
+    // Current user message — potentially enriched with attachments/vision
+    currentUserMessage,
   ];
 
   const aiMsgId = (await import("uuid")).v4();

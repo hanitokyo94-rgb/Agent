@@ -726,6 +726,7 @@ export function AgentChat() {
         body: JSON.stringify({
           content: finalText,
           mode: agentMode,
+          ...(pendingAttachments.length > 0 ? { attachments: pendingAttachments } : {}),
           ...(useCustomAI && customAIConfig.apiKey ? {
             customAI: { baseUrl: customAIConfig.baseUrl, apiKey: customAIConfig.apiKey, model: customAIConfig.model },
           } : {}),
@@ -961,6 +962,53 @@ export function AgentChat() {
   function handleFileAttach(files: Attachment[]) {
     setPendingAttachments((prev) => [...prev, ...files]);
     setShowMyFiles(false);
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    for (const item of imageItems) {
+      const file = item.getAsFile();
+      if (!file) continue;
+      const ext = item.type.split("/")[1] ?? "png";
+      const name = `paste_${Date.now()}.${ext}`;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const url = ev.target?.result as string;
+        setPendingAttachments((prev) => [...prev, { name, type: file.type, url, size: file.size }]);
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function handleTextareaDrop(e: React.DragEvent) {
+    if (e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    const processFilesAsync = async () => {
+      const newAtts: Attachment[] = [];
+      for (const file of files) {
+        const url = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve(ev.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+        let textContent: string | undefined;
+        const isText = file.type.startsWith("text/") || ["json","md","txt","csv","ts","tsx","js","jsx","html","css"].includes(file.name.split(".").pop()?.toLowerCase() ?? "");
+        if (isText && file.size < 200 * 1024) {
+          textContent = await new Promise<string>((resolve) => {
+            const r = new FileReader();
+            r.onload = (ev) => resolve(ev.target?.result as string);
+            r.readAsText(file);
+          });
+        }
+        newAtts.push({ name: file.name, type: file.type, url, content: textContent, size: file.size });
+      }
+      setPendingAttachments((prev) => [...prev, ...newAtts]);
+    };
+    processFilesAsync();
   }
 
   const fileCount = files.filter((f) => !f.isDir).length;
@@ -1341,18 +1389,34 @@ export function AgentChat() {
             <div className="max-w-2xl mx-auto space-y-2">
               {pendingAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {pendingAttachments.map((a, i) => (
-                    <div key={i} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-muted border border-border text-xs">
-                      <span>{a.type.startsWith("image/") ? "🖼️" : "📎"}</span>
-                      <span className="max-w-[120px] truncate">{a.name}</span>
-                      <button onClick={() => setPendingAttachments((prev) => prev.filter((_, j) => j !== i))}
-                        className="text-muted-foreground hover:text-foreground ml-0.5">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
+                  {pendingAttachments.map((a, i) => {
+                    const isImg = a.type.startsWith("image/");
+                    const isZip = a.name.endsWith(".zip") || a.name.endsWith(".tar.gz") || a.type.includes("zip");
+                    const ext = a.name.split(".").pop()?.toUpperCase() ?? "FILE";
+                    return (
+                      <div key={i} className="relative group flex items-center gap-2 pr-7 rounded-xl border border-border bg-muted/60 overflow-hidden max-w-[200px]">
+                        {isImg && a.url ? (
+                          <img src={a.url} alt={a.name} className="w-9 h-9 object-cover shrink-0 rounded-l-xl" />
+                        ) : (
+                          <div className={`w-9 h-9 flex items-center justify-center shrink-0 text-base rounded-l-xl ${isZip ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"}`}>
+                            {isZip ? "🗜️" : "📄"}
+                          </div>
+                        )}
+                        <div className="min-w-0 py-1.5">
+                          <p className="text-xs font-medium truncate leading-tight">{a.name}</p>
+                          <p className="text-[10px] text-muted-foreground leading-tight">{isImg ? a.type.split("/")[1].toUpperCase() : ext}{a.size ? ` · ${(a.size / 1024).toFixed(0)}KB` : ""}</p>
+                        </div>
+                        <button
+                          onClick={() => setPendingAttachments((prev) => prev.filter((_, j) => j !== i))}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded-md opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-all"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -1441,18 +1505,23 @@ export function AgentChat() {
                   </div>
                 )}
 
-              <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden focus-within:border-border transition-all">
+              <div
+                className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden focus-within:border-border transition-all"
+                onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+                onDrop={handleTextareaDrop}
+              >
                 <textarea
                   ref={textareaRef}
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   placeholder={
                     activeSkill
                       ? `Describe what you want to ${activeSkill.name}... (optional)`
                       : isStreaming
                       ? "Type to queue next message..."
-                      : "Ask anything · / for skills · @ to mention a file"
+                      : "Ask anything · / for skills · @ for files · paste image"
                   }
                   rows={1}
                   className="w-full px-4 pt-3.5 pb-2 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/70 max-h-[220px]"
@@ -2373,12 +2442,32 @@ function MessageBubble({
         <div className="max-w-[82%] space-y-2">
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 justify-end">
-              {msg.attachments.map((a, i) => (
-                <div key={i} className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-muted text-xs border border-border">
-                  <span>{a.type.startsWith("image/") ? "🖼️" : "📎"}</span>
-                  <span className="max-w-[140px] truncate">{a.name}</span>
-                </div>
-              ))}
+              {msg.attachments.map((a, i) => {
+                const isImg = a.type.startsWith("image/");
+                const isZip = a.name.endsWith(".zip") || a.name.endsWith(".tar.gz") || a.type?.includes("zip");
+                const ext = a.name.split(".").pop()?.toUpperCase() ?? "FILE";
+                if (isImg && a.url) {
+                  return (
+                    <div key={i} className="rounded-2xl overflow-hidden border border-border/60 shadow-sm">
+                      <img
+                        src={a.url}
+                        alt={a.name}
+                        className="max-w-[260px] max-h-[200px] object-cover block"
+                        title={a.name}
+                      />
+                    </div>
+                  );
+                }
+                return (
+                  <div key={i} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl border text-xs ${isZip ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50" : "bg-muted border-border"}`}>
+                    <span className="text-base shrink-0">{isZip ? "🗜️" : "📄"}</span>
+                    <div>
+                      <p className="font-medium truncate max-w-[160px]">{a.name}</p>
+                      <p className="text-muted-foreground">{isZip ? "Archive" : ext}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           <div className="relative">

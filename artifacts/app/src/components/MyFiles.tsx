@@ -98,16 +98,23 @@ export function MyFiles({ projectId, onAttach, onClose }: MyFilesProps) {
 
     for (const file of fileArr) {
       const isImage = file.type.startsWith("image/");
-      if (isImage) {
-        const url = await new Promise<string>((resolve) => {
+      const isText = file.type.startsWith("text/") || ["application/json", "text/markdown", "text/plain", "text/csv"].includes(file.type) || ["json","md","txt","csv","ts","tsx","js","jsx","html","css","yaml","yml","xml","sh","py","rb","go","rs"].includes(file.name.split(".").pop()?.toLowerCase() ?? "");
+      // Always read as dataURL — images for vision preview, others for upload to workspace
+      const url = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      // For small text files also read as text for inline context
+      let textContent: string | undefined;
+      if (isText && file.size < 200 * 1024) {
+        textContent = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target?.result as string);
-          reader.readAsDataURL(file);
+          reader.readAsText(file);
         });
-        newAttachments.push({ name: file.name, type: file.type, url, size: file.size });
-      } else {
-        newAttachments.push({ name: file.name, type: file.type, size: file.size });
       }
+      newAttachments.push({ name: file.name, type: file.type, url, content: textContent, size: file.size });
     }
     setStaged((prev) => [...prev, ...newAttachments]);
   }
