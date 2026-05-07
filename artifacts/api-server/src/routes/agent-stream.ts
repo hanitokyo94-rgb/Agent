@@ -2214,8 +2214,19 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
           }
         }
       } else {
-        // No tool calls — check finish reason
-        if (finishReason === "stop" || finishReason === "end_turn" || finishReason === "length") {
+        // No tool calls — check if this is early in task (model is just "planning" without acting)
+        const hasActualWork = toolsUsed.length > 0;
+        const isEarlyIdle = iterations <= 2 && !hasActualWork;
+
+        if (isEarlyIdle && (finishReason === "stop" || finishReason === "end_turn")) {
+          // Model is writing planning text without using tools — push it to act
+          agentLog("WARN", req.params.projectId, "loop_continue_early_idle", { iteration: iterations, reason: "no_tools_early_stop" });
+          messages.push({
+            role: "user",
+            content: "DO NOT just describe what you will do. START EXECUTING NOW using tools. Do NOT output planning text — call your first tool immediately. Every response must include at least one tool call until task_done.",
+          });
+          continueLoop = true;
+        } else if (finishReason === "stop" || finishReason === "end_turn" || finishReason === "length") {
           agentLog("INFO", req.params.projectId, "loop_exit", { reason: `no_tools_finish_${finishReason}`, iteration: iterations });
           continueLoop = false;
         } else if (!finishReason) {

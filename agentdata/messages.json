@@ -564,5 +564,63 @@
     ],
     "attachmentUrl": null,
     "createdAt": "2026-05-07T23:13:05.196Z"
+  },
+  {
+    "id": "bedbabce-d202-4b1c-82c1-76701890161c",
+    "projectId": "518ba793-ba89-478d-be66-6c3ef13c533b",
+    "role": "user",
+    "content": "هلا",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:15:54.045Z"
+  },
+  {
+    "id": "eb53b60a-0765-41c7-8ee2-4ab21c677db9",
+    "projectId": "518ba793-ba89-478d-be66-6c3ef13c533b",
+    "role": "assistant",
+    "content": "### 🔍 Reading project structure\nScanning repository...  \nWorkspace is currently empty.\n\n### 📝 Analyzing the issue  \nأهلًا! 😄  \nقلّي وش تبغى أسوي بالضبط:\n1) تبغى **بناء مشروع جديد**؟ (ويب / React / API / موبايل Expo)  \n2) ولا عندك **مشكلة في كود موجود** وترسلها/توصفها؟\n\n### ⚡ Applying fix  \n—  \n\n### ✅ Final result  \nجاوبني بس بهذي المعلومات (اختصر):\n- نوع المشروع: (ويب / React / Node API / موبايل Expo)\n- الهدف: (مثلاً: تسجيل دخول، لوحة تحكم، متجر…)\n- أي تفاصيل/متطلبات: (تصميم، قواعد، لغات، تفضيلات)",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:16:04.253Z"
+  },
+  {
+    "id": "c6878e9f-3984-46cb-ad07-b9eca6f02576",
+    "projectId": "518ba793-ba89-478d-be66-6c3ef13c533b",
+    "role": "user",
+    "content": "ولد صورة موقع خاص",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:16:26.671Z"
+  },
+  {
+    "id": "123d916b-81e8-4bf4-a73e-86bff5d278a5",
+    "projectId": "518ba793-ba89-478d-be66-6c3ef13c533b",
+    "role": "assistant",
+    "content": "### 🔍 Reading project structure\nWorkspace فارغ.\n\n### 📝 Analyzing the issue  \nأنت تقول: “ولد صورة موقع خاص” — يعني تبغى **تصميم/صورة هيرو أو تصور للموقع**. بس احتاج منك اختيار واحد عشان أطلع لك الصورة بالشكل الصح.\n\n### ⚡ Applying fix  \nاختَر جواب سريع (1–2 كلمات لكل سطر):\n\n1) نوع الموقع: (شركة / متجر / بورتفوليو / تعليمي / تواصل)  \n2) الستايل: (فاخر / مودرن / minimal / gaming / طبي)  \n3) الألوان: (مثلاً أزرق + ذهبي) أو اتركه “عشوائي”  \n4) المقاس: (يفضل 1792x1024) أو أي واحد: 1024x1024 / 864x1536\n\n### ✅ Final result  \nاكتب مثلًا:\n- متجر\n- مودرن\n- أسود + أزرق\n- 1792x1024\n\nوبعدها أولّد لك الصورة فورًا.",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:16:36.475Z"
+  },
+  {
+    "id": "ca724986-d31c-426d-bf02-bb3f3081c060",
+    "projectId": "518ba793-ba89-478d-be66-6c3ef13c533b",
+    "role": "user",
+    "content": "اسود ابيض وشعار bobo",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:16:43.906Z"
+  },
+  {
+    "id": "3bfb38af-1951-438c-a777-0c39ae7ceaff",
+    "projectId": "518ba793-ba89-478d-be66-6c3ef13c533b",
+    "role": "assistant",
+    "content": "",
+    "thinkingSteps": [
+      "generate_image",
+      "file_write",
+      "build_preview"
+    ],
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:17:34.386Z"
   }
 ]

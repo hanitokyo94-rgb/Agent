@@ -2710,96 +2710,91 @@ function MessageBubble({
     : lastNotify ?? null;
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
 
-      {/* ── Steps Row ── */}
-      {hasSteps && (
+      {/* ── Notify messages — plain text outside the select ── */}
+      {notifies.length > 0 && (
         <div className="space-y-1">
-          {/* Active running: bouncing dots + label */}
-          {runningTool && (
-            <div className="flex items-center gap-2 text-[12px] text-muted-foreground/70 select-none">
-              <div className="flex gap-[3px] shrink-0">
-                <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "100ms" }} />
-                <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "200ms" }} />
-              </div>
-              <span className="truncate max-w-[320px] italic">{runningLabel}</span>
-            </div>
-          )}
+          {notifies.map((text, i) => (
+            <p key={`n-${i}`} className="text-sm text-foreground/80 leading-relaxed">{text}</p>
+          ))}
+        </div>
+      )}
 
-          {/* Done: select-style collapsible trigger */}
-          {!runningTool && totalSteps > 0 && (
-            <div>
-              <button
-                onClick={() => setStepsOpen((v) => !v)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] transition-all select-none",
-                  stepsOpen
-                    ? "bg-muted border-border text-foreground"
-                    : "bg-muted/40 border-border/50 text-muted-foreground hover:bg-muted hover:border-border hover:text-foreground"
-                )}
-              >
-                <svg
-                  width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                  className={cn("transition-transform duration-200 shrink-0", stepsOpen ? "rotate-90" : "")}
-                >
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
-                <span>{lastNotify ? lastNotify.slice(0, 55) + (lastNotify.length > 55 ? "…" : "") : `${totalSteps} step${totalSteps !== 1 ? "s" : ""} completed`}</span>
-                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-muted-foreground/15 text-[10px] font-medium">{totalSteps}</span>
-              </button>
+      {/* ── Active running indicator ── */}
+      {runningTool && (
+        <div className="flex items-center gap-2 text-[12px] text-muted-foreground/60 select-none">
+          <div className="flex gap-[3px] shrink-0">
+            <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "100ms" }} />
+            <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "200ms" }} />
+          </div>
+          <span className="truncate max-w-[320px] italic">{runningLabel}</span>
+        </div>
+      )}
 
-              {/* Expanded inline steps list */}
-              {stepsOpen && (
-                <div className="mt-2 ml-2 border border-border/40 rounded-xl overflow-hidden bg-muted/10 animate-in fade-in-0 slide-in-from-top-1 duration-150">
-                  <div className="px-3 py-2.5 space-y-2">
-                    {notifies.map((text, i) => (
-                      <div key={`n-${i}`} className="flex items-start gap-2">
-                        <div className="shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/25 mt-[5px]" />
-                        <span className="text-[11px] text-muted-foreground leading-relaxed">{text}</span>
-                      </div>
-                    ))}
-                    {visibleTools.map((tool, i) => {
-                      const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
-                      const op = FILE_TOOL_NAMES.includes(tool.name) ? getFileOp(tool) : null;
-                      const title = op ? `${cfg.label} ${shortFilename(op.file)}` : cfg.label;
-                      const isClickable = tool.status === "done" && tool.result;
-                      return (
-                        <button
-                          key={`t-${i}`}
-                          onClick={() => isClickable ? setSelectedTool(tool) : undefined}
-                          className={cn(
-                            "flex items-center gap-2 w-full text-left rounded-lg px-1.5 -mx-1.5 py-1 -my-0.5 transition-colors",
-                            isClickable ? "hover:bg-muted/60 cursor-pointer" : "cursor-default"
-                          )}
-                        >
-                          <span className="shrink-0 w-4 h-4 rounded border border-border/50 bg-background text-[9px] flex items-center justify-center">
-                            {cfg.icon}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <span className="text-[11px] font-medium text-foreground/80 leading-none">{title}</span>
-                            {(tool.args.command || tool.args.url || tool.args.query) && (
-                              <span className="ml-1.5 text-[10px] text-muted-foreground font-mono">
-                                {String(tool.args.command ?? tool.args.url ?? tool.args.query).slice(0, 35)}
-                              </span>
-                            )}
-                          </div>
-                          {isClickable && (
-                            <svg className="w-2.5 h-2.5 text-muted-foreground/30 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {totalSteps > 3 && (
+      {/* ── Steps collapsible — only tool calls, no notifies inside ── */}
+      {!runningTool && visibleTools.length > 0 && (
+        <div>
+          <button
+            onClick={() => setStepsOpen((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-all select-none border",
+              stepsOpen
+                ? "bg-muted/60 border-border/60 text-foreground/70"
+                : "bg-transparent border-border/40 text-muted-foreground hover:bg-muted/40 hover:border-border/60 hover:text-foreground/70"
+            )}
+          >
+            <svg
+              width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+              className={cn("transition-transform duration-150 shrink-0", stepsOpen ? "rotate-90" : "")}
+            >
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+            <span>{visibleTools.length} step{visibleTools.length !== 1 ? "s" : ""}</span>
+          </button>
+
+          {/* Expanded steps list — tool calls only */}
+          {stepsOpen && (
+            <div className="mt-1.5 ml-1 border border-border/30 rounded-lg overflow-hidden bg-muted/5 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+              <div className="px-2.5 py-2 space-y-1">
+                {visibleTools.map((tool, i) => {
+                  const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
+                  const op = FILE_TOOL_NAMES.includes(tool.name) ? getFileOp(tool) : null;
+                  const title = op ? `${cfg.label} ${shortFilename(op.file)}` : cfg.label;
+                  const isClickable = tool.status === "done" && tool.result;
+                  return (
                     <button
-                      onClick={() => setShowSummary(true)}
-                      className="w-full text-[11px] text-primary/70 hover:text-primary px-3 py-2 border-t border-border/30 text-center transition-colors hover:bg-muted/20"
+                      key={`t-${i}`}
+                      onClick={() => isClickable ? setSelectedTool(tool) : undefined}
+                      className={cn(
+                        "flex items-center gap-2 w-full text-left rounded px-1.5 py-1 transition-colors",
+                        isClickable ? "hover:bg-muted/60 cursor-pointer" : "cursor-default"
+                      )}
                     >
-                      View full summary ({totalSteps} steps) →
+                      <span className="shrink-0 text-[11px]">{cfg.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[11px] text-foreground/70 leading-none">{title}</span>
+                        {(tool.args.command || tool.args.url || tool.args.query) && (
+                          <span className="ml-1.5 text-[10px] text-muted-foreground/60 font-mono">
+                            {String(tool.args.command ?? tool.args.url ?? tool.args.query).slice(0, 40)}
+                          </span>
+                        )}
+                      </div>
+                      {isClickable && (
+                        <svg className="w-2.5 h-2.5 text-muted-foreground/30 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                      )}
                     </button>
-                  )}
-                </div>
+                  );
+                })}
+              </div>
+              {visibleTools.length > 4 && (
+                <button
+                  onClick={() => setShowSummary(true)}
+                  className="w-full text-[11px] text-muted-foreground/50 hover:text-primary px-3 py-1.5 border-t border-border/20 text-center transition-colors hover:bg-muted/10"
+                >
+                  View all {visibleTools.length} steps →
+                </button>
               )}
             </div>
           )}
