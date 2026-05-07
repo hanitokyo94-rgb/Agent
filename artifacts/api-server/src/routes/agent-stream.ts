@@ -317,15 +317,150 @@ You operate iteratively:
 5. ALWAYS end with task_done — NEVER finish without calling it
 </agent_loop>
 
+<project_architecture>
+## MANDATORY: Every project must be properly structured. NEVER put everything in one file.
+
+### Full-stack project structure (DEFAULT for any web app):
+\`\`\`
+project-name/
+├── api-server/              # Backend (Node.js + Express + TypeScript)
+│   ├── src/
+│   │   ├── routes/          # Express route handlers (auth.ts, users.ts, etc.)
+│   │   ├── middleware/      # Auth middleware, error handlers, rate limiting
+│   │   ├── lib/             # Utilities: db.ts, logger.ts, storage.ts
+│   │   ├── models/          # TypeScript interfaces and schemas
+│   │   ├── app.ts           # Express app setup
+│   │   └── index.ts         # Entry point (server.listen)
+│   ├── package.json
+│   └── tsconfig.json
+│
+└── app/                     # Frontend (React + Vite + TypeScript)
+    ├── src/
+    │   ├── components/
+    │   │   ├── ui/          # Base design system: Button, Input, Card, Badge, Modal, Tooltip, Avatar, Skeleton, Toast
+    │   │   ├── layout/      # Navbar, Sidebar, Footer, PageLayout
+    │   │   └── features/    # Domain components: UserCard, ProductGrid, etc.
+    │   ├── pages/           # Route-level components: Home, Dashboard, Profile, Settings
+    │   ├── hooks/           # Custom hooks: useAuth, useDebounce, useLocalStorage, useFetch
+    │   ├── lib/             # api.ts (fetch client), utils.ts, formatters.ts, constants.ts
+    │   ├── stores/          # Zustand state stores (optional)
+    │   ├── types/           # TypeScript: types.ts, api.types.ts
+    │   ├── index.css        # Global styles + Tailwind directives
+    │   ├── main.tsx         # React root
+    │   └── App.tsx          # Router + layouts
+    ├── public/
+    ├── package.json
+    ├── vite.config.ts       # Proxy: /api → localhost:3001
+    ├── tailwind.config.ts
+    └── tsconfig.json
+\`\`\`
+
+### Backend-only project:
+\`\`\`
+project-name/
+├── src/
+│   ├── routes/
+│   ├── middleware/
+│   ├── lib/
+│   ├── models/
+│   └── index.ts
+├── package.json
+└── tsconfig.json
+\`\`\`
+
+### CLI / Script project:
+\`\`\`
+project-name/
+├── src/
+│   ├── commands/    # Individual command files
+│   ├── lib/
+│   └── index.ts
+├── package.json
+└── tsconfig.json
+\`\`\`
+</project_architecture>
+
+<ui_libraries>
+## TOP UI/UX LIBRARIES — Always use these for best results:
+
+### Core Stack (use in EVERY React project):
+- **Tailwind CSS v3** — utility-first CSS, fast, consistent: \`npm install tailwindcss postcss autoprefixer\`
+- **shadcn/ui** — best component library (copy-paste Radix + Tailwind), accessible: \`npx shadcn@latest init\`
+- **Radix UI** — headless accessible primitives (used by shadcn): \`@radix-ui/react-dialog @radix-ui/react-dropdown-menu @radix-ui/react-select\`
+- **Lucide React** — beautiful SVG icons, 1000+: \`npm install lucide-react\`
+- **class-variance-authority** + **clsx** + **tailwind-merge** — for component variants: \`npm install cva clsx tailwind-merge\`
+
+### Animation & Motion:
+- **Framer Motion** — #1 animation library, silky smooth: \`npm install framer-motion\`
+- **tailwindcss-animate** — CSS keyframe animations for Tailwind: \`npm install tailwindcss-animate\`
+
+### Forms & Validation:
+- **React Hook Form** — performant forms: \`npm install react-hook-form\`
+- **Zod** — TypeScript-first schema validation: \`npm install zod @hookform/resolvers\`
+
+### Data & State:
+- **TanStack Query v5** — async state, caching, refetching: \`npm install @tanstack/react-query\`
+- **Zustand** — minimal state management: \`npm install zustand\`
+- **Axios** — HTTP client with interceptors: \`npm install axios\`
+
+### Charts & Data Viz:
+- **Recharts** — composable React charts: \`npm install recharts\`
+- **Chart.js + react-chartjs-2** — powerful charts: \`npm install chart.js react-chartjs-2\`
+
+### Tables:
+- **TanStack Table v8** — headless, powerful: \`npm install @tanstack/react-table\`
+
+### Date/Time:
+- **date-fns** — lightweight date utility: \`npm install date-fns\`
+- **dayjs** — minimalist moment.js alternative: \`npm install dayjs\`
+
+### Notifications:
+- **Sonner** — beautiful toast notifications: \`npm install sonner\`
+- **react-hot-toast** — simple toasts: \`npm install react-hot-toast\`
+
+### Routing:
+- **React Router v6** — \`npm install react-router-dom\`
+- **wouter** — tiny router (2kb): \`npm install wouter\`
+
+### Markdown / Rich Text:
+- **react-markdown** + **rehype-highlight** — render markdown: \`npm install react-markdown rehype-highlight\`
+- **@uiw/react-md-editor** — markdown editor: \`npm install @uiw/react-md-editor\`
+
+### Developer Experience:
+- **TypeScript** — always, no exceptions
+- **ESLint + Prettier** — code quality
+- **Vite** — fast bundler for frontend
+
+## UI/UX Design Principles to Follow:
+- Use **8px spacing scale**: p-2, p-4, p-6, p-8 (never odd numbers)
+- Use **semantic color tokens**: primary, secondary, muted, destructive, accent
+- Add **subtle shadows**: shadow-sm, shadow-md for cards, dropdowns
+- Use **border-radius**: rounded-lg (8px) for cards, rounded-xl (12px) for large surfaces, rounded-full for pills
+- Add **hover + focus + active states** to ALL interactive elements
+- Add **loading skeletons** while data fetches (Skeleton component)
+- Add **empty states** with illustration/icon + message + action button
+- Add **error states** with clear error message + retry button
+- Use **micro-animations**: transition-all duration-200 for color changes, scale-95 for button press
+- Dark mode support via CSS variables (--background, --foreground, --primary, etc.)
+- Mobile-first responsive design with sm: md: lg: breakpoints
+</ui_libraries>
+
 <build_rules>
-- Start with package.json containing ALL dependencies
-- TypeScript for backend ALWAYS
-- Frontend: professional HTML/CSS/JS or React+Vite
-- NO placeholders, NO TODO, NO mock data — real executable code only
+- TypeScript for BOTH backend and frontend — NO JavaScript
+- NEVER put all code in one file — always use proper folder structure above
+- Start with ALL package.json files first (frontend + backend separately)
+- Install ALL dependencies before writing source code
+- Use shadcn/ui + Tailwind + Framer Motion for beautiful UI
 - For editing: prefer file_str_replace over rewriting entire files
-- Chain shell commands: e.g. "npm install && npm run build"
-- After building: verify it works, then deploy
-- Use web_search + fetch_url to find correct docs and latest versions
+- Chain shell commands: e.g. "npm install && npm run build && npm start"
+- After building: verify it works with shell_exec, then deploy
+- Use web_search to find latest docs, package versions, and best practices
+- Add .env.example files showing required env vars
+- Write README.md with setup instructions
+- NO placeholders, NO TODO, NO mock data — real executable code only
+- Every component needs: loading state, error state, empty state
+- Every form needs: validation (Zod), error messages, disabled state while submitting
+- Every API route needs: auth middleware, input validation, error handling
 </build_rules>
 
 <secrets_handling>
@@ -424,6 +559,13 @@ Get the project's BOBO_PROJECT_KEY with get_secrets (it equals the projectId, vi
 تحدث العربية مع المستخدم. استخدم أسلوبًا تقنيًا مباشرًا.
 استمر في العمل حتى تكتمل المهمة — لا تتوقف في المنتصف أبدًا.
 اتصل دائمًا بـ task_done عند الانتهاء.
+
+هيكل المشاريع الإلزامي:
+- NEVER تضع كل الكود في ملف واحد
+- دائمًا استخدم هيكل المجلدات المنظّم: api-server/ + app/ (components/ui/ + pages/ + hooks/ + lib/)
+- استخدم أقوى مكتبات: Tailwind CSS + shadcn/ui + Framer Motion + Lucide React + React Hook Form + Zod + TanStack Query
+- كل مشروع ويب = TypeScript + React + Vite للفرونت + Express + TypeScript للباك
+- جودة إنتاجية كاملة: loading states + error states + empty states + dark mode + responsive
 </arabic_mode>`;
   }
 
@@ -703,10 +845,10 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   (req.socket as any)?.setNoDelay?.(true);
   (req.socket as any)?.setKeepAlive?.(true, 10000);
 
-  // Send SSE keepalive ping every 20 seconds to prevent proxy/browser timeouts
+  // Send SSE keepalive ping every 10 seconds to prevent proxy/browser timeouts
   const keepAliveInterval = setInterval(() => {
     try { res.write(": ping\n\n"); } catch { clearInterval(keepAliveInterval); }
-  }, 20000);
+  }, 10000);
 
   const sendEvent = (event: string, data: unknown) => {
     try {
@@ -760,16 +902,16 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   try {
     let continueLoop = true;
     let iterations = 0;
-    const MAX_ITERATIONS = 40;
+    const MAX_ITERATIONS = 60;
     let taskDoneCalled = false;
 
     while (continueLoop && iterations < MAX_ITERATIONS && !taskDoneCalled) {
       iterations++;
 
-      // Prune tool messages if context is too large (keep last 30 messages)
-      if (messages.length > 40) {
+      // Prune tool messages if context is too large (keep last 40 messages)
+      if (messages.length > 55) {
         const systemMsg = messages[0];
-        const recent = messages.slice(-30);
+        const recent = messages.slice(-40);
         // Ensure we don't break tool_call/tool_result pairs
         messages.length = 0;
         messages.push(systemMsg, ...recent);
@@ -780,7 +922,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         messages,
         tools: AGENT_TOOLS,
         tool_choice: "auto",
-        max_tokens: 8192,
+        max_tokens: 16384,
         stream: true,
       };
       if (isThinkingModel) {
