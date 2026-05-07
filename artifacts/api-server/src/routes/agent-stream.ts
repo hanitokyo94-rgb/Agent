@@ -1201,10 +1201,10 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   try {
     let continueLoop = true;
     let iterations = 0;
-    // Plan-based agent power: Lite=10, Economy=25, Power=50, Admin=60
-    const planPower: Record<string, number> = { free: 10, build: 25, scale: 50, admin: 60 };
+    // Plan-based agent power: free=30, build=50, scale=70, admin=80
+    const planPower: Record<string, number> = { free: 30, build: 50, scale: 70, admin: 80 };
     const userPlanStr = (users[0] as any)?.plan ?? "free";
-    const MAX_ITERATIONS = planPower[userPlanStr] ?? 10;
+    const MAX_ITERATIONS = planPower[userPlanStr] ?? 30;
     let taskDoneCalled = false;
 
     while (continueLoop && iterations < MAX_ITERATIONS && !taskDoneCalled) {
@@ -1393,9 +1393,16 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
       }
     }
 
-    // If loop ended without task_done, add a final completion notice
-    if (!taskDoneCalled && fullContent) {
-      sendEvent("notify", { text: "Task complete." });
+    // If loop ended without task_done, force send a task_done event so the UI shows completion
+    if (!taskDoneCalled) {
+      const autoSummary = fullContent
+        ? fullContent.slice(-600)
+        : `Completed ${toolsUsed.length} actions: ${toolsUsed.slice(-8).join(", ")}`;
+      sendEvent("task_done", {
+        summary: toolsUsed.length > 0
+          ? `✅ Done! Completed ${toolsUsed.length} steps.\n\n${autoSummary}`
+          : autoSummary,
+      });
     }
 
     // Save final AI message
