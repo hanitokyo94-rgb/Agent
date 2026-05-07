@@ -1375,18 +1375,6 @@ export function AgentChat() {
                       </svg>
                     </button>
 
-                    {/* Skills slash button */}
-                    <button
-                      onClick={() => { setShowSkillsManager(true); }}
-                      className="flex items-center gap-1 px-2 py-1.5 rounded-xl hover:bg-muted transition-colors text-muted-foreground hover:text-foreground text-[11px] font-medium"
-                      title="Skills — or type / in chat"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-                      </svg>
-                      <span className="hidden sm:inline">Skills</span>
-                    </button>
-
                     {/* Plan / Build mode toggle */}
                     <div className="flex items-center bg-muted/60 rounded-lg p-0.5">
                       <button
@@ -1431,13 +1419,10 @@ export function AgentChat() {
                     </div>
 
                     {isStreaming && (
-                      <div className="flex items-center gap-1.5 ml-0.5">
-                        <div className="flex gap-0.5">
-                          <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "0ms" }} />
-                          <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "150ms" }} />
-                          <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "300ms" }} />
-                        </div>
-                        <span className="text-xs text-primary/70">Working...</span>
+                      <div className="flex gap-0.5 ml-0.5">
+                        <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "0ms" }} />
+                        <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "150ms" }} />
+                        <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "300ms" }} />
                       </div>
                     )}
                   </div>
