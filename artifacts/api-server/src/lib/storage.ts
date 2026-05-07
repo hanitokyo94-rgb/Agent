@@ -1,9 +1,10 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.resolve(__dirname, "../../../../agentdata");
+// Use process.cwd() (= artifacts/api-server/) so the path works both in
+// dev (src/lib/) and in the esbuild bundle (dist/index.mjs).
+// Go up two levels: artifacts/api-server → artifacts → workspace
+const DATA_DIR = process.env.DATA_DIR ?? path.resolve(process.cwd(), "../../agentdata");
 
 function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -60,9 +61,14 @@ export function findWhere<T>(name: string, predicate: (item: T) => boolean): T[]
   return readCollection<T>(name).filter(predicate);
 }
 
-const UPLOADS_DIR = path.resolve(__dirname, "../../../../agentdata/uploads");
+const UPLOADS_DIR = path.resolve(process.cwd(), "../../agentdata/uploads");
 
 export function getUploadsDir(): string {
   ensureDir(UPLOADS_DIR);
   return UPLOADS_DIR;
+}
+
+export function getDataDir(): string {
+  ensureDir(DATA_DIR);
+  return DATA_DIR;
 }

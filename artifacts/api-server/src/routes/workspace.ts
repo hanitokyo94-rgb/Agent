@@ -1,8 +1,7 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
-import { spawn, exec } from "child_process";
+import { exec } from "child_process";
 import { promisify } from "util";
 import { findById, findWhere, readCollection, updateRecord } from "../lib/storage.js";
 import type { User } from "./auth.js";
@@ -10,8 +9,8 @@ import type { User } from "./auth.js";
 const execAsync = promisify(exec);
 const router = Router();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACES_DIR = path.resolve(__dirname, "../../../../agentdata/projects");
+// Use process.cwd() (= artifacts/api-server/) to avoid __dirname bundle issues
+const WORKSPACES_DIR = process.env.WORKSPACES_DIR ?? path.resolve(process.cwd(), "../../agentdata/projects");
 
 function getWorkspaceDir(projectId: string): string {
   const dir = path.join(WORKSPACES_DIR, projectId);
@@ -26,15 +25,6 @@ function getUserId(req: any): string | null {
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       try {
-        const decoded = Buffer.from(token, "utf-8").toString("utf-8");
-        userId = decoded.split(":")[0];
-      } catch {
-        return null;
-      }
-    }
-    if (!userId && req.headers.authorization?.startsWith("Bearer ")) {
-      try {
-        const token = req.headers.authorization.slice(7);
         const decoded = Buffer.from(token, "base64").toString("utf-8");
         userId = decoded.split(":")[0];
       } catch { return null; }
@@ -127,7 +117,7 @@ router.delete("/projects/:projectId/file", (req, res) => {
   res.json({ success: true });
 });
 
-// POST /api/projects/:projectId/shell - run a shell command
+// POST /api/projects/:projectId/shell
 router.post("/projects/:projectId/shell", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -139,21 +129,16 @@ router.post("/projects/:projectId/shell", async (req, res) => {
   const secrets = getProjectSecrets(req.params.projectId);
   try {
     const { stdout, stderr } = await execAsync(command, {
-      cwd: wsDir,
-      timeout: Math.min(Number(timeout), 120000),
+      cwd: wsDir, timeout: Math.min(Number(timeout), 120000),
       env: { ...process.env, ...secrets },
     });
     res.json({ stdout: stdout || "", stderr: stderr || "", exitCode: 0 });
   } catch (err: any) {
-    res.json({
-      stdout: err.stdout || "",
-      stderr: err.stderr || err.message || "",
-      exitCode: err.code ?? 1,
-    });
+    res.json({ stdout: err.stdout || "", stderr: err.stderr || err.message || "", exitCode: err.code ?? 1 });
   }
 });
 
-// POST /api/projects/:projectId/install - npm install packages
+// POST /api/projects/:projectId/install
 router.post("/projects/:projectId/install", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -164,17 +149,14 @@ router.post("/projects/:projectId/install", async (req, res) => {
   const wsDir = getWorkspaceDir(req.params.projectId);
   const pkgList = packages.map((p) => p.replace(/[^a-zA-Z0-9@/._-]/g, "")).join(" ");
   try {
-    const { stdout, stderr } = await execAsync(`npm install ${pkgList}`, {
-      cwd: wsDir,
-      timeout: 120000,
-    });
+    const { stdout, stderr } = await execAsync(`npm install ${pkgList}`, { cwd: wsDir, timeout: 120000 });
     res.json({ stdout: stdout || "", stderr: stderr || "", exitCode: 0 });
   } catch (err: any) {
     res.json({ stdout: err.stdout || "", stderr: err.stderr || err.message, exitCode: 1 });
   }
 });
 
-// POST /api/projects/:projectId/run - run the project
+// POST /api/projects/:projectId/run
 router.post("/projects/:projectId/run", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -182,23 +164,17 @@ router.post("/projects/:projectId/run", async (req, res) => {
   if (!project || project.userId !== userId) { res.status(404).json({ error: "Project not found" }); return; }
   const wsDir = getWorkspaceDir(req.params.projectId);
   const secrets = getProjectSecrets(req.params.projectId);
-
   killProject(req.params.projectId);
-
   const entryFiles = ["index.ts", "src/index.ts", "index.js", "src/index.js"];
   let entry = "index.ts";
   for (const f of entryFiles) {
     if (fs.existsSync(path.join(wsDir, f))) { entry = f; break; }
   }
-
   const hasTsx = fs.existsSync(path.join(wsDir, "node_modules/.bin/tsx"));
   const command = hasTsx ? `npx tsx ${entry}` : `node ${entry}`;
-
   try {
     const { stdout, stderr } = await execAsync(command, {
-      cwd: wsDir,
-      timeout: 60000,
-      env: { ...process.env, ...secrets, PORT: "3456" },
+      cwd: wsDir, timeout: 60000, env: { ...process.env, ...secrets, PORT: "3456" },
     });
     res.json({ stdout: stdout || "", stderr: stderr || "", exitCode: 0, entry });
   } catch (err: any) {
@@ -206,7 +182,7 @@ router.post("/projects/:projectId/run", async (req, res) => {
   }
 });
 
-// POST /api/projects/:projectId/fetch - fetch a URL
+// POST /api/projects/:projectId/fetch
 router.post("/projects/:projectId/fetch", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -219,10 +195,9 @@ router.post("/projects/:projectId/fetch", async (req, res) => {
       method,
       headers: { "User-Agent": "Mozilla/5.0 AI Builder Bot", ...reqHeaders },
     });
-    const contentType = response.headers.get("content-type") ?? "";
     const text = await response.text();
     const truncated = text.length > 20000 ? text.slice(0, 20000) + "\n...[truncated]" : text;
-    res.json({ status: response.status, contentType, body: truncated, url });
+    res.json({ status: response.status, contentType: response.headers.get("content-type"), body: truncated, url });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -234,8 +209,7 @@ router.get("/projects/:projectId/secrets", (req, res) => {
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
   const project = findById<any>("projects", req.params.projectId);
   if (!project || project.userId !== userId) { res.status(404).json({ error: "Project not found" }); return; }
-  const secrets = getProjectSecrets(req.params.projectId);
-  res.json({ secrets });
+  res.json({ secrets: getProjectSecrets(req.params.projectId) });
 });
 
 // PUT /api/projects/:projectId/secrets
@@ -256,16 +230,12 @@ router.get("/projects/:projectId/preview", (req, res) => {
   const publicDir = path.join(wsDir, "public");
   const serveDir = fs.existsSync(distDir) ? distDir : fs.existsSync(publicDir) ? publicDir : wsDir;
   const indexPath = path.join(serveDir, "index.html");
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.status(404).json({ error: "No preview available. Build the project first." });
-  }
+  if (fs.existsSync(indexPath)) res.sendFile(indexPath);
+  else res.status(404).json({ error: "No preview available." });
 });
 
 // Helpers
 const runningProcesses: Record<string, any> = {};
-
 function killProject(projectId: string) {
   if (runningProcesses[projectId]) {
     try { runningProcesses[projectId].kill("SIGTERM"); } catch {}
@@ -274,20 +244,16 @@ function killProject(projectId: string) {
 }
 
 function getSecretsPath(projectId: string): string {
-  const dir = getWorkspaceDir(projectId);
-  return path.join(dir, ".secrets.json");
+  return path.join(getWorkspaceDir(projectId), ".secrets.json");
 }
-
 function getProjectSecrets(projectId: string): Record<string, string> {
   const fp = getSecretsPath(projectId);
   if (!fs.existsSync(fp)) return {};
   try { return JSON.parse(fs.readFileSync(fp, "utf-8")); } catch { return {}; }
 }
-
 function setProjectSecrets(projectId: string, secrets: Record<string, string>) {
-  const fp = getSecretsPath(projectId);
-  fs.writeFileSync(fp, JSON.stringify(secrets, null, 2), "utf-8");
+  fs.writeFileSync(getSecretsPath(projectId), JSON.stringify(secrets, null, 2), "utf-8");
 }
 
-export { getWorkspaceDir, getProjectSecrets, listFilesRecursive };
+export { getWorkspaceDir, getProjectSecrets, listFilesRecursive, WORKSPACES_DIR };
 export default router;

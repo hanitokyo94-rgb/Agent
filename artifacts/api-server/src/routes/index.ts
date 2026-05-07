@@ -8,6 +8,7 @@ import adminRouter from "./admin.js";
 import workspaceRouter from "./workspace.js";
 import agentStreamRouter from "./agent-stream.js";
 import deployRouter from "./deploy.js";
+import githubImportRouter from "./github-import.js";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(adminRouter);
 router.use(workspaceRouter);
 router.use(agentStreamRouter);
 router.use(deployRouter);
+router.use(githubImportRouter);
 
 export default router;
