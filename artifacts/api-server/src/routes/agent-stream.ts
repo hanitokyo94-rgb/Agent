@@ -1605,13 +1605,16 @@ async function executeTool(
 
     case "generate_image": {
       try {
-        const baseUrl = (process.env.AI_BASE_URL ?? "").replace(/\/+$/, "");
+        const rawBase = (process.env.AI_BASE_URL ?? "").replace(/\/+$/, "");
+        // AI_BASE_URL may already end with /v1 — strip it to get the root, then re-add /v1
+        const baseRoot = rawBase.replace(/\/v\d+$/, "");
+        const baseUrl = baseRoot || rawBase;
         const apiKey = process.env.AI_API_KEY;
         if (!apiKey) return "❌ AI_API_KEY not configured. Ask admin to set it.";
 
         const prompt: string = args.prompt;
         const size: string = args.size ?? "1024x1024";
-        const imageModel = "black-forest-labs/flux-2-pro";
+        const imageModel = args.model ?? "black-forest-labs/flux-schnell";
         const rawFilename: string = args.filename ?? `image_${Date.now()}.png`;
         const filename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
 
