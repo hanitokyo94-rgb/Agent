@@ -1238,7 +1238,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     let continueLoop = true;
     let iterations = 0;
     // Plan-based agent power: free=30, build=50, scale=70, admin=80
-    const planPower: Record<string, number> = { free: 50, build: 100, scale: 150, admin: 150 };
+    const planPower: Record<string, number> = { free: 25, build: 40, scale: 60, admin: 80 };
     const userPlanStr = (users[0] as any)?.plan ?? "free";
     const MAX_ITERATIONS = planPower[userPlanStr] ?? 30;
     let taskDoneCalled = false;

@@ -275,7 +275,6 @@ export function AgentChat() {
   const [useCustomAI, setUseCustomAI] = useState<boolean>(() => {
     try { const cfg = JSON.parse(localStorage.getItem("custom-ai-config") ?? "{}"); return !!cfg.enabled && !!cfg.apiKey; } catch { return false; }
   });
-  const [showBuildLog, setShowBuildLog] = useState(false);
   const [showGithubModal, setShowGithubModal] = useState(false);
   const [githubPushStatus, setGithubPushStatus] = useState<"idle" | "pushing" | "done" | "error">("idle");
   const [githubPushResult, setGithubPushResult] = useState<{ url?: string; error?: string } | null>(null);
@@ -303,6 +302,8 @@ export function AgentChat() {
   const menuRef = useRef<HTMLDivElement>(null);
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const prevIsStreamingRef = useRef(false);
+  // Grace period: don't overwrite local messages from server for 8s after streaming ends
+  const lastStreamEndRef = useRef<number>(0);
   const queryClient = useQueryClient();
 
   const { data: project } = useGetProject(projectId, {
@@ -349,8 +350,9 @@ export function AgentChat() {
         setStreamingMessages((prev) => {
           const serverCount = (savedMessages as any[]).length;
           const localFinished = prev.filter((m) => !m.streaming).length;
-          // Don't override if local has more finalized messages (streaming just finished)
-          if (prev.length > 0 && localFinished >= serverCount) return prev;
+          // Grace period: if streaming just ended (< 8s ago), keep local messages to avoid flicker
+          const gracePeriodActive = Date.now() - lastStreamEndRef.current < 8000;
+          if (prev.length > 0 && (localFinished >= serverCount || gracePeriodActive)) return prev;
           return (savedMessages as any[]).map((m) => ({
             id: m.id, role: m.role, content: m.content,
             thinkingSteps: m.thinkingSteps, streaming: false, createdAt: m.createdAt,
@@ -903,6 +905,7 @@ export function AgentChat() {
       localStorage.removeItem(PENDING_KEY(projectId));
       localStorage.removeItem(streamKey);
     } finally {
+      lastStreamEndRef.current = Date.now();
       setIsStreaming(false);
       loadFiles();
       loadDeployInfo();
@@ -1254,23 +1257,6 @@ export function AgentChat() {
               onDismiss={() => setSecretRequests((prev) => prev.filter((r) => r.key !== req.key || r.msgId !== req.msgId))}
             />
           ))}
-
-          {/* Live Build Log floating button — visible only during streaming */}
-          {isStreaming && (
-            <div className="fixed bottom-24 right-6 z-40">
-              <button
-                onClick={() => setShowBuildLog(true)}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-foreground text-background shadow-lg hover:opacity-90 transition-all text-xs font-medium"
-              >
-                <span className="flex gap-[3px] shrink-0">
-                  <span className="w-[4px] h-[4px] rounded-full bg-background/60 animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <span className="w-[4px] h-[4px] rounded-full bg-background/60 animate-bounce" style={{ animationDelay: "100ms" }} />
-                  <span className="w-[4px] h-[4px] rounded-full bg-background/60 animate-bounce" style={{ animationDelay: "200ms" }} />
-                </span>
-                Live Build
-              </button>
-            </div>
-          )}
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto">
@@ -1689,21 +1675,6 @@ export function AgentChat() {
         />
       )}
 
-      {/* Live Build Log Modal */}
-      {showBuildLog && (() => {
-        const streamingMsg = streamingMessages.find((m) => m.streaming);
-        const liveTools = streamingMsg ? (toolEvents[streamingMsg.id] ?? []) : [];
-        const liveNotifies = streamingMsg ? (notifyBanners[streamingMsg.id] ?? []) : [];
-        return (
-          <LiveBuildLogModal
-            tools={liveTools}
-            notifies={liveNotifies}
-            isStreaming={isStreaming}
-            onClose={() => setShowBuildLog(false)}
-            onOpenCode={(p, c) => { setCodeViewFile({ path: p, content: c }); setShowBuildLog(false); }}
-          />
-        );
-      })()}
 
       {/* ── GitHub Push Modal ── */}
       {showGithubModal && (
@@ -2992,164 +2963,3 @@ function SkillsManagerModal({
   );
 }
 
-// ── Live Build Log Modal ──────────────────────────────────────────────
-function LiveBuildLogModal({
-  tools, notifies, isStreaming, onClose, onOpenCode,
-}: {
-  tools: ToolEvent[];
-  notifies: string[];
-  isStreaming: boolean;
-  onClose: () => void;
-  onOpenCode: (path: string, content: string) => void;
-}) {
-  const logEndRef = useRef<HTMLDivElement>(null);
-  const FILE_TOOL_NAMES = ["file_write", "file_str_replace", "file_delete", "file_read"];
-
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [tools.length, notifies.length]);
-
-  const allItems: Array<{ kind: "notify"; text: string } | { kind: "tool"; tool: ToolEvent }> = [];
-  for (const text of notifies) allItems.push({ kind: "notify", text });
-  for (const tool of tools) {
-    if (tool.name === "message_notify" || tool.name === "request_secret") continue;
-    allItems.push({ kind: "tool", tool });
-  }
-
-  const runningTool = tools.find((t) => t.status === "running");
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#0d1117] w-full sm:max-w-2xl max-h-[85dvh] sm:max-h-[78dvh] rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300 border border-white/8">
-
-        <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
-          <div className="w-10 h-1 bg-white/20 rounded-full" />
-        </div>
-
-        <div className="flex items-center gap-2 px-4 py-3 bg-[#161b22] border-b border-white/8 shrink-0">
-          <div className="flex gap-1.5">
-            <button onClick={onClose} className="w-3 h-3 rounded-full bg-[#ff5f57] hover:bg-[#ff5f57]/80 transition-colors" />
-            <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
-            <div className="w-3 h-3 rounded-full bg-[#28c840]" />
-          </div>
-          <span className="flex-1 text-center text-[11px] text-white/30 font-mono select-none">Agent Build Log</span>
-          {isStreaming ? (
-            <div className="flex gap-[3px] shrink-0">
-              <span className="w-[4px] h-[4px] rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-[4px] h-[4px] rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "100ms" }} />
-              <span className="w-[4px] h-[4px] rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "200ms" }} />
-            </div>
-          ) : (
-            <span className="text-[10px] text-emerald-400/50 font-mono shrink-0">✓ done</span>
-          )}
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 py-3 font-mono text-sm space-y-1.5">
-          {allItems.length === 0 && isStreaming && (
-            <div className="flex items-center gap-2 text-white/30 text-xs py-4">
-              <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-              </svg>
-              Starting agent...
-            </div>
-          )}
-
-          {allItems.map((item, i) => {
-            if (item.kind === "notify") {
-              return (
-                <div key={`n-${i}`} className="flex items-start gap-2 py-0.5">
-                  <span className="text-white/25 shrink-0 text-xs">→</span>
-                  <span className="text-white/40 text-xs leading-relaxed">{item.text}</span>
-                </div>
-              );
-            }
-
-            const { tool } = item;
-            const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
-            const isRunning = tool.status === "running";
-            const isFile = FILE_TOOL_NAMES.includes(tool.name);
-            const op = isFile ? getFileOp(tool) : null;
-            const isError = tool.result?.startsWith("❌") || tool.result?.startsWith("Exit ");
-
-            const cmdLabel = op
-              ? `${op.type === "write" ? "write" : op.type === "replace" ? "edit" : op.type === "delete" ? "delete" : "read"} ${op.file}`
-              : tool.args.command
-              ? tool.args.command.slice(0, 80)
-              : tool.args.packages
-              ? `install ${Array.isArray(tool.args.packages) ? tool.args.packages.join(" ") : tool.args.packages}`
-              : tool.args.query
-              ? `search "${tool.args.query.slice(0, 50)}"`
-              : tool.args.url
-              ? `fetch ${tool.args.url.slice(0, 50)}`
-              : cfg.label;
-
-            return (
-              <div key={`t-${i}`} className="space-y-1">
-                <div className="flex items-center gap-2 py-0.5">
-                  {isRunning ? (
-                    <svg className="animate-spin w-3 h-3 text-yellow-400 shrink-0" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                    </svg>
-                  ) : isError ? (
-                    <span className="text-red-400 text-xs shrink-0 leading-none">✗</span>
-                  ) : (
-                    <span className="text-emerald-400 text-xs shrink-0 leading-none">✓</span>
-                  )}
-                  <span className={cn(
-                    "text-xs truncate max-w-[85%]",
-                    isRunning ? "text-yellow-300" : isError ? "text-red-300/80" : "text-white/75"
-                  )}>
-                    <span className="text-white/25">$ </span>
-                    {cmdLabel}
-                    {isRunning && <span className="animate-pulse">_</span>}
-                  </span>
-                  {op && tool.status === "done" && !isError && (
-                    <span className="ml-auto text-[10px] text-emerald-500/50 shrink-0 font-mono">
-                      {op.added > 0 ? `+${op.added}` : ""}
-                      {op.removed > 0 ? ` -${op.removed}` : ""}
-                    </span>
-                  )}
-                </div>
-
-                {tool.status === "done" && !isFile && tool.result && (
-                  <div className="ml-5 pl-2 border-l border-white/6">
-                    <pre className={cn(
-                      "text-[11px] leading-relaxed whitespace-pre-wrap break-all",
-                      isError ? "text-red-300/60" : "text-white/25"
-                    )}>
-                      {tool.result.slice(0, 250)}{tool.result.length > 250 ? "\n…" : ""}
-                    </pre>
-                  </div>
-                )}
-
-                {op && op.content && tool.status === "done" && !isError && (
-                  <button
-                    onClick={() => onOpenCode(op.file, op.content!)}
-                    className="ml-5 text-[11px] text-cyan-400/50 hover:text-cyan-300 transition-colors font-mono"
-                  >
-                    open {op.file.split("/").pop()} ↗
-                  </button>
-                )}
-              </div>
-            );
-          })}
-
-          {runningTool && (
-            <div className="text-white/20 text-[11px] py-0.5 animate-pulse font-mono">···</div>
-          )}
-          <div ref={logEndRef} />
-        </div>
-
-        <div className="px-4 py-2 border-t border-white/8 bg-[#161b22] shrink-0 flex items-center justify-between">
-          <span className="text-[10px] text-white/20 font-mono">
-            {allItems.filter((i) => i.kind === "tool").length} actions · {notifies.length} updates
-          </span>
-          <button onClick={onClose} className="text-[10px] text-white/25 hover:text-white/50 transition-colors font-mono">[close]</button>
-        </div>
-      </div>
-    </div>
-  );
-}

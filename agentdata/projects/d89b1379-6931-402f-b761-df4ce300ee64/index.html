@@ -118,6 +118,40 @@
         margin-top: 18px;
       }
 
+      .page { width: 100%; }
+
+      .field { margin-top: 12px; }
+      label {
+        display:block;
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      input, textarea {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.06);
+        color: var(--text);
+        padding: 10px 12px;
+        outline: none;
+        transition: border-color 160ms ease, background 160ms ease;
+      }
+      input:focus, textarea:focus {
+        border-color: rgba(124,58,237,0.7);
+        background: rgba(255,255,255,0.08);
+      }
+
+      .err {
+        min-height: 18px;
+        margin-top: 6px;
+        color: rgba(255,255,255,0.88);
+        font-size: 12.5px;
+        opacity: 0;
+      }
+      .err.show { opacity: 1; color: rgba(239, 68, 68, 0.95); }
+
       .mini {
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 14px;
@@ -144,23 +178,64 @@
           </div>
         </header>
 
-        <section class="grid" aria-label="معلومات">
-          <div class="mini">
-            <b>✨ تصميم نظيف</b>
-            <div>ألوان وخلفية ناعمة مع بطاقة مركزية.</div>
+        <nav class="actions" aria-label="التنقل">
+          <button class="primary" type="button" onclick="showPage('home')">الصفحة الرئيسية</button>
+          <button type="button" onclick="showPage('contact')">التواصل</button>
+          <button type="button" onclick="toggleTheme()">تبديل الوضع</button>
+        </nav>
+
+        <section id="page-home" class="page" aria-label="الصفحة الرئيسية">
+          <section class="grid" aria-label="معلومات">
+            <div class="mini">
+              <b>✨ تصميم نظيف</b>
+              <div>ألوان وخلفية ناعمة مع بطاقة مركزية.</div>
+            </div>
+            <div class="mini">
+              <b>⚡ سريع</b>
+              <div>لا يوجد أي اعتماد على ملفات إضافية — فقط HTML + CSS.</div>
+            </div>
+          </section>
+
+          <div class="actions" style="margin-top:18px;">
+            <button class="primary" type="button" onclick="showToast()">اضغط لعرض رسالة</button>
           </div>
-          <div class="mini">
-            <b>⚡ سريع</b>
-            <div>لا يوجد أي اعتماد على ملفات إضافية — فقط HTML + CSS.</div>
-          </div>
+
+          <div class="hint" id="hint">جاهز — جرّب الأزرار.</div>
         </section>
 
-        <div class="actions">
-          <button class="primary" onclick="showToast()">اضغط لعرض رسالة</button>
-          <button onclick="toggleTheme()">تبديل الوضع</button>
-        </div>
+        <section id="page-contact" class="page" aria-label="صفحة تواصل" style="display:none;">
+          <div style="margin-top:6px;">
+            <h2 style="margin:0 0 8px 0; font-size:18px;">تواصل معنا</h2>
+            <p style="margin:0 0 14px 0;">اكتب رسالتك وسنقوم بالرد (هذا فورم تجريبي داخل الصفحة).</p>
 
-        <div class="hint" id="hint">جاهز — جرّب الأزرار.</div>
+            <form id="contactForm" novalidate>
+              <div class="field">
+                <label for="name">الاسم</label>
+                <input id="name" name="name" type="text" placeholder="مثال: أحمد" autocomplete="name" />
+                <div class="err" data-err-for="name"></div>
+              </div>
+
+              <div class="field">
+                <label for="email">البريد الإلكتروني</label>
+                <input id="email" name="email" type="email" placeholder="name@example.com" autocomplete="email" />
+                <div class="err" data-err-for="email"></div>
+              </div>
+
+              <div class="field">
+                <label for="message">الرسالة</label>
+                <textarea id="message" name="message" rows="5" placeholder="اكتب رسالتك هنا..."></textarea>
+                <div class="err" data-err-for="message"></div>
+              </div>
+
+              <div class="actions" style="margin-top:16px;">
+                <button class="primary" type="submit">إرسال</button>
+                <button type="button" onclick="resetContact()">مسح</button>
+              </div>
+
+              <div class="hint" id="contactHint" style="margin-top:14px;">استخدم فورم التواصل وشوف رسالة النجاح/الخطأ.</div>
+            </form>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -191,6 +266,109 @@
           setHint('الوضع: نهاري');
         }
       }
+
+      function showPage(page) {
+        const home = document.getElementById('page-home');
+        const contact = document.getElementById('page-contact');
+        if (page === 'contact') {
+          home.style.display = 'none';
+          contact.style.display = 'block';
+        } else {
+          contact.style.display = 'none';
+          home.style.display = 'block';
+        }
+      }
+
+      function getErrEl(fieldName) {
+        return document.querySelector(`.err[data-err-for="${fieldName}"]`);
+      }
+
+      function setFieldError(fieldName, message) {
+        const el = getErrEl(fieldName);
+        if (!el) return;
+        el.textContent = message || '';
+        el.classList.toggle('show', Boolean(message));
+      }
+
+      function clearContactErrors() {
+        setFieldError('name', '');
+        setFieldError('email', '');
+        setFieldError('message', '');
+      }
+
+      function validateContact(formData) {
+        const errs = {};
+
+        const name = (formData.name || '').trim();
+        const email = (formData.email || '').trim();
+        const message = (formData.message || '').trim();
+
+        if (!name) errs.name = 'الاسم مطلوب.';
+        else if (name.length < 2) errs.name = 'الاسم قصير جدًا.';
+
+        if (!email) errs.email = 'البريد الإلكتروني مطلوب.';
+        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errs.email = 'ادخل بريد إلكتروني صحيح.';
+
+        if (!message) errs.message = 'الرسالة مطلوبة.';
+        else if (message.length < 10) errs.message = 'الرسالة قصيرة جدًا (10 أحرف على الأقل).';
+
+        return errs;
+      }
+
+      function resetContact() {
+        const form = document.getElementById('contactForm') as HTMLFormElement;
+        if (form) form.reset();
+        clearContactErrors();
+        const hint = document.getElementById('contactHint');
+        if (hint) hint.textContent = 'تم مسح الحقول — اكتب رسالتك من جديد.';
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('contactForm');
+        const contactHint = document.getElementById('contactHint');
+
+        if (!form) return;
+
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (!contactHint) return;
+
+          clearContactErrors();
+          const fd = new FormData(form as HTMLFormElement);
+          const data = {
+            name: String(fd.get('name') || ''),
+            email: String(fd.get('email') || ''),
+            message: String(fd.get('message') || ''),
+          };
+
+          const errs = validateContact(data);
+          const hasErr = Object.keys(errs).length > 0;
+          if (hasErr) {
+            if (errs.name) setFieldError('name', errs.name);
+            if (errs.email) setFieldError('email', errs.email);
+            if (errs.message) setFieldError('message', errs.message);
+            contactHint.textContent = 'فيه أخطاء — راجع الحقول المعلّمة.';
+            return;
+          }
+
+          contactHint.textContent = '✓ تم إرسال رسالتك (تجريبي). سيتم عرض ملخص بسيط.';
+
+          const summary = document.createElement('div');
+          summary.style.marginTop = '12px';
+          summary.style.padding = '12px';
+          summary.style.border = '1px solid rgba(34,197,94,0.35)';
+          summary.style.background = 'rgba(34,197,94,0.10)';
+          summary.style.borderRadius = '12px';
+          summary.textContent = `الاسم: ${data.name} — البريد: ${data.email}`;
+
+          // remove previous summaries
+          const prev = document.getElementById('contactSummary');
+          if (prev) prev.remove();
+          summary.id = 'contactSummary';
+
+          form.appendChild(summary);
+        });
+      });
     </script>
   </body>
 </html>

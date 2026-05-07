@@ -62,9 +62,9 @@
     "adSource": "other",
     "country": "DZ",
     "language": "en",
-    "credits": 20,
-    "creditsUsed": 5,
-    "plan": "free",
+    "credits": 150,
+    "creditsUsed": 10,
+    "plan": "admin",
     "createdAt": "2026-05-07T14:58:28.232Z"
   }
 ]
