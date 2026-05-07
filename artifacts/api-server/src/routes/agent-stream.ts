@@ -689,10 +689,21 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const user = users[0];
 
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Transfer-Encoding", "chunked");
   res.flushHeaders();
+
+  // Prevent socket timeout for long-running agents
+  (req.socket as any)?.setTimeout?.(0);
+  (req.socket as any)?.setNoDelay?.(true);
+  (req.socket as any)?.setKeepAlive?.(true, 10000);
+
+  // Send SSE keepalive ping every 20 seconds to prevent proxy/browser timeouts
+  const keepAliveInterval = setInterval(() => {
+    try { res.write(": ping\n\n"); } catch { clearInterval(keepAliveInterval); }
+  }, 20000);
 
   const sendEvent = (event: string, data: unknown) => {
     try {

@@ -25,5 +25,34 @@
     "thinkingSteps": null,
     "attachmentUrl": null,
     "createdAt": "2026-05-07T01:21:57.720Z"
+  },
+  {
+    "id": "489888c9-ed8c-4322-b99e-07030e2bc37f",
+    "projectId": "1658e29f-5885-4d5d-9d33-09d989ace3db",
+    "role": "user",
+    "content": "شغل مشروع",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T01:29:07.203Z"
+  },
+  {
+    "id": "a0312677-df7d-4c1e-be29-9b8231c00967",
+    "projectId": "1658e29f-5885-4d5d-9d33-09d989ace3db",
+    "role": "assistant",
+    "content": "### 🔍 Reading project structure\nScanning repository...\nFound multiple apps:\n- `artifacts/api-server` (TypeScript backend)\n- `artifacts/app` (React/Vite frontend)\n- `artifacts/mockup-sandbox` (سبار/مشغل إضافي)\n\n### 📝 Analyzing the issue  \nمافيش تفاصيل “شغل مشروع” بالمعنى: عايز تعمل إيه بالضبط؟ (ميزة جديدة / Fix bug / تجهيز نشر / ربط Auth / تخزين بيانات / تحسين UI…)\n\n### ⚡ Applying fix  \nهبدأ بخطوة أولى: أعرف الكود الحالي بسرعة وأطلع “أهم نقاط الشغل” (تشغيل محلي + بناء + اختبار).  \nلكن لازم تحدد اتجاهك عشان أمشي صح.\n\n**اختار واحد (أو قولنا تفاصيلك):**\n1) تشغيل المشروع محلياً (setup + build)  \n2) إضافة Login/Register (باستخدام Bobo Auth) وربط الواجهة  \n3) إضافة تخزين بيانات (Bobo Data)  \n4) Fix bug محدد (ابعث رسالة الخطأ/سلوك المشكلة)  \n5) تجهيز Deployment على Vercel\n\n### ✅ Final result\nقولي: **تفضّل أي رقم من الخمسة؟**  \nولو عندك هدف محدد اكتب سطرين عن المطلوب (مثلاً: “عايز صفحة Projects تخزن في قاعدة بيانات وتعرضها لكل مستخدم”).",
+    "thinkingSteps": [
+      "file_list"
+    ],
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T01:29:22.722Z"
+  },
+  {
+    "id": "fb7c09d9-14ce-4927-be9b-c50bb1fc4d93",
+    "projectId": "1658e29f-5885-4d5d-9d33-09d989ace3db",
+    "role": "user",
+    "content": "شغله مشروعي",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T01:29:47.314Z"
   }
 ]
