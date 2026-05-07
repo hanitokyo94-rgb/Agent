@@ -29,7 +29,7 @@ interface AdminStats {
   totalCreditsUsed: number;
 }
 
-const PLANS = ["free", "build", "scale", "admin"];
+const PLANS = ["free", "build", "scale", "admin", "max_builders"];
 
 export function Admin() {
   const [, setLocation] = useLocation();

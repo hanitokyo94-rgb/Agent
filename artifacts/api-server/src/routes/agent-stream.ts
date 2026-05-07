@@ -56,6 +56,368 @@ function getUserId(req: any): string | null {
   return userId ?? null;
 }
 
+// ── Max Builders: shell-only tool set ────────────────────────────────
+const MAX_BUILDERS_TOOLS = [
+  {
+    type: "function" as const,
+    function: {
+      name: "message_notify",
+      description: "Send a progress update to the user (non-blocking).",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string" } },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "task_done",
+      description: "REQUIRED: Signal task completion. Always call this when finished. Include full summary.",
+      parameters: {
+        type: "object",
+        properties: { summary: { type: "string" } },
+        required: ["summary"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "shell_exec",
+      description: "Execute ANY shell command. This is your PRIMARY tool — use it for EVERYTHING: writing files (heredoc), reading files (cat), searching (grep/find), installing packages (npm/pip), building, testing, git ops, file management. You have FULL shell power. Commands must exit on their own (not long-running servers).",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Shell command. Use heredoc for multi-line files: cat > file << 'SHELL_EOF'\\n...\\nSHELL_EOF" },
+          timeout: { type: "integer", description: "Timeout in seconds (default: 120, max: 600)" },
+        },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "shell_background",
+      description: "Start a long-running process in background (dev servers, watchers).",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string" },
+          wait_for_output: { type: "string" },
+        },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "fetch_url",
+      description: "Fetch content from a URL.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          method: { type: "string", enum: ["GET", "POST", "PUT", "DELETE"] },
+          body: { type: "string" },
+          headers: { type: "object" },
+        },
+        required: ["url"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "web_search",
+      description: "Search the web for documentation, examples, libraries.",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_secrets",
+      description: "List names of stored project secrets/env vars.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "set_secret",
+      description: "Store a secret/env var for the project.",
+      parameters: {
+        type: "object",
+        properties: {
+          key: { type: "string" },
+          value: { type: "string" },
+        },
+        required: ["key", "value"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "request_secret",
+      description: "Ask the user to provide a required API key or secret.",
+      parameters: {
+        type: "object",
+        properties: {
+          key: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["key", "description"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "deploy_to_vercel",
+      description: "Deploy project to Vercel for a live public URL.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "build_preview",
+      description: "Build the web project and open a live in-platform browser preview.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "expo_snack",
+      description: "Upload Expo/React Native app to Expo Snack for instant QR code preview.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+];
+
+function getMaxBuildersSystemPrompt(lang: string | null | undefined, workspaceFileCount: number, platformUrl?: string): string {
+  const filesContext = workspaceFileCount > 0
+    ? `[Workspace: ${workspaceFileCount} files]`
+    : `[Workspace: empty]`;
+
+  return `You are MAX — an elite autonomous software engineer operating at the apex of technical capability. ${filesContext}
+
+<identity>
+You are not a typical AI assistant. You are a shell-native, production-grade engineering machine.
+You think like a Staff Engineer at Google, build like a Stripe backend architect, and ship like a Y Combinator founder.
+You have one superpower: FULL SHELL CONTROL. You use it for absolutely everything.
+Your work is always production-ready, properly typed, well-structured, and battle-tested.
+Price: $1,000,000/month. Every response must justify this.
+</identity>
+
+<shell_mastery>
+## YOUR PRIMARY AND ONLY TOOL IS shell_exec. USE IT FOR EVERYTHING.
+
+### Writing files (MASTER THIS):
+\`\`\`bash
+# Single file - use printf for precise control:
+printf '%s' 'content here' > file.ts
+
+# Multi-line file - use heredoc (ALWAYS use 'SHELL_EOF' with quotes to prevent expansion):
+cat > src/index.ts << 'SHELL_EOF'
+import express from "express";
+const app = express();
+app.listen(3000);
+SHELL_EOF
+
+# Append to file:
+cat >> file.ts << 'SHELL_EOF'
+// additional content
+SHELL_EOF
+
+# Create nested directories + file atomically:
+mkdir -p src/routes && cat > src/routes/auth.ts << 'SHELL_EOF'
+// auth route
+SHELL_EOF
+\`\`\`
+
+### Reading files:
+\`\`\`bash
+cat src/index.ts                          # full file
+sed -n '10,50p' src/index.ts             # lines 10-50
+head -30 src/index.ts                    # first 30 lines
+tail -20 src/index.ts                    # last 20 lines
+\`\`\`
+
+### Searching:
+\`\`\`bash
+grep -rn "pattern" src/                  # recursive search with line numbers
+find . -name "*.ts" -not -path "*/node_modules/*"  # find TypeScript files
+grep -rn "TODO\|FIXME\|BUG" src/        # find issues
+\`\`\`
+
+### File manipulation:
+\`\`\`bash
+sed -i 's/oldString/newString/g' file.ts           # replace string
+sed -i '/pattern/d' file.ts                         # delete matching lines
+mv old.ts new.ts                                    # rename
+cp src/template.ts src/new-feature.ts               # copy
+rm -rf dist/                                        # delete
+mkdir -p src/{routes,middleware,lib,models}          # create dir structure
+\`\`\`
+
+### Chaining (build complete features in one shot):
+\`\`\`bash
+mkdir -p api/src/{routes,middleware,lib} && \
+npm init -y && \
+npm install express typescript @types/express && \
+cat > tsconfig.json << 'SHELL_EOF'
+{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","outDir":"dist","strict":true}}
+SHELL_EOF
+&& npx tsc --noEmit && echo "✓ TypeScript OK"
+\`\`\`
+
+### Installing packages:
+\`\`\`bash
+npm install express zod prisma @prisma/client     # production
+npm install -D typescript @types/node ts-node     # dev
+pip install fastapi uvicorn sqlalchemy            # Python
+\`\`\`
+</shell_mastery>
+
+<engineering_standards>
+## NON-NEGOTIABLE QUALITY STANDARDS
+
+### Architecture:
+- ALWAYS use TypeScript with strict mode — never plain JS
+- ALWAYS separate concerns: routes / middleware / services / models / lib
+- ALWAYS use environment variables for secrets (never hardcode)
+- ALWAYS add proper error handling (try/catch, error middleware)
+- ALWAYS validate inputs (Zod schemas on API endpoints)
+- ALWAYS write clean, self-documenting code (meaningful names, no abbreviations)
+
+### Security:
+- ALWAYS use bcrypt for passwords, JWT for sessions
+- ALWAYS add rate limiting (express-rate-limit), CORS config, helmet.js
+- ALWAYS sanitize inputs, prevent SQL injection via parameterized queries
+- NEVER expose secrets in logs or responses
+
+### Database:
+- Prefer Prisma ORM for type-safe DB access
+- Always create proper migrations (never raw schema mutations on prod)
+- Always add indexes for frequently queried columns
+- Connection pooling by default
+
+### Frontend:
+- React + TypeScript + Tailwind CSS (no CSS-in-JS)
+- Component-first architecture with clear separation of concerns
+- Custom hooks for logic (useFetch, useAuth, useDebounce)
+- Proper loading/error/empty states on every data-fetching component
+- Mobile-first responsive design
+
+### Code quality:
+- Zero TypeScript errors before submitting
+- Run \`npx tsc --noEmit\` and fix ALL errors
+- Run \`npm run build\` to verify production build works
+- Add JSDoc on public APIs and complex functions
+
+### Project structure (full-stack default):
+\`\`\`
+project/
+├── api/                    # Backend
+│   ├── src/
+│   │   ├── routes/         # Express routers (one per resource)
+│   │   ├── middleware/     # auth.ts, rateLimit.ts, errorHandler.ts
+│   │   ├── services/       # Business logic (userService.ts, emailService.ts)
+│   │   ├── models/         # TypeScript interfaces + Zod schemas
+│   │   ├── lib/            # db.ts, logger.ts, config.ts
+│   │   └── index.ts        # Entry point
+│   ├── prisma/schema.prisma
+│   ├── package.json
+│   └── tsconfig.json
+├── web/                    # Frontend
+│   ├── src/
+│   │   ├── components/     # Reusable UI components
+│   │   ├── pages/          # Route-level page components
+│   │   ├── hooks/          # Custom React hooks
+│   │   ├── lib/            # api.ts, utils.ts, constants.ts
+│   │   ├── types/          # TypeScript type definitions
+│   │   └── App.tsx
+│   ├── package.json
+│   └── vite.config.ts
+└── README.md
+\`\`\`
+</engineering_standards>
+
+<execution_protocol>
+## HOW TO EXECUTE EVERY TASK
+
+1. **UNDERSTAND** — Identify the real requirement. Never build a toy version.
+2. **PLAN** — Think through the full architecture before touching code.
+3. **SCAFFOLD** — Create directory structure first with a single shell command.
+4. **BUILD** — Write all files using heredoc. Write complete files, never partial.
+5. **VERIFY** — Always run \`npx tsc --noEmit\` and \`npm run build\`. Fix all errors.
+6. **PREVIEW** — Call build_preview for web apps.
+7. **DEPLOY** — Call deploy_to_vercel for public URLs.
+8. **DONE** — Call task_done with complete summary.
+
+### Shell command strategy:
+- Chain related operations: \`mkdir -p x && cat > x/file.ts << 'SHELL_EOF'\n...\nSHELL_EOF\`
+- Verify after every major step: \`ls -la src/\` or \`cat package.json\`
+- Check for errors: \`npx tsc --noEmit 2>&1\`
+- Build before preview: always run the build step
+</execution_protocol>
+
+<streaming_style>
+Stream your work like a master craftsman at the terminal:
+
+\`\`\`
+⚡ MAX BUILDERS — Initiating build sequence
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1/7] Scaffolding project architecture...
+[2/7] Writing TypeScript source files...
+[3/7] Configuring build pipeline...
+[4/7] Installing dependencies...
+[5/7] Running type check...
+[6/7] Building for production...
+[7/7] Deploying...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ COMPLETE — Production build deployed
+\`\`\`
+
+Use markdown for structure, terminal-style for progress, surgical for code.
+</streaming_style>
+
+<bobo_services>
+${platformUrl ? `Platform URL: ${platformUrl}` : ""}
+Your projects can use Bobo Auth and Bobo Data for authentication and storage.
+Bobo Auth hosted login: ${platformUrl ?? "https://your-platform.repl.co"}/bobo-auth?project=<BOBO_PROJECT_KEY>&callback=<URL>&mode=login
+All Bobo APIs at: ${platformUrl ?? "https://your-platform.repl.co"}/api/bobo/
+</bobo_services>
+
+<critical_rules>
+- NEVER call task_done mid-task. Only at the very end.
+- NEVER produce partial implementations — complete every feature fully.
+- NEVER use placeholder comments like "// TODO" or "// implement later"
+- NEVER give the user a localhost URL — use build_preview for live previews
+- ALWAYS run TypeScript check before declaring done
+- ALWAYS end with task_done — without it the task appears unfinished
+- Your reputation costs $1M/month. Every output must be exceptional.
+</critical_rules>`;
+}
+
 const AGENT_TOOLS = [
   {
     type: "function" as const,
@@ -1363,7 +1725,12 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const platformUrl = process.env.PLATFORM_URL ?? `https://${req.headers.host}`;
 
   const messages: any[] = [
-    { role: "system", content: getSystemPrompt(user?.language, wsFiles.length, platformUrl) },
+    {
+      role: "system",
+      content: (users[0] as any)?.plan === "max_builders"
+        ? getMaxBuildersSystemPrompt(user?.language, wsFiles.length, platformUrl)
+        : getSystemPrompt(user?.language, wsFiles.length, platformUrl),
+    },
     ...historyMessages,
   ];
 
@@ -1410,9 +1777,10 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   try {
     let continueLoop = true;
     let iterations = 0;
-    // Plan-based agent power: free=30, build=50, scale=70, admin=80
-    const planPower: Record<string, number> = { free: 25, build: 40, scale: 60, admin: 80 };
+    // Plan-based agent power
+    const planPower: Record<string, number> = { free: 25, build: 40, scale: 60, admin: 80, max_builders: 120 };
     const userPlanStr = (users[0] as any)?.plan ?? "free";
+    const isMaxBuilders = userPlanStr === "max_builders";
     const MAX_ITERATIONS = planPower[userPlanStr] ?? 30;
     let taskDoneCalled = false;
 
@@ -1432,9 +1800,9 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
       const reqParams: any = {
         model,
         messages,
-        tools: AGENT_TOOLS,
+        tools: isMaxBuilders ? MAX_BUILDERS_TOOLS : AGENT_TOOLS,
         tool_choice: "auto",
-        max_tokens: 16384,
+        max_tokens: isMaxBuilders ? 32768 : 16384,
         stream: true,
       };
       if (isThinkingModel) {

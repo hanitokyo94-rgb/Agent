@@ -4,9 +4,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetProject,
   useListMessages,
+  useGetMe,
   getGetProjectQueryKey,
   getListMessagesQueryKey,
   getListProjectsQueryKey,
+  getGetMeQueryKey,
 } from "@workspace/api-client-react";
 import { Sidebar } from "@/components/Sidebar";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
@@ -311,6 +313,8 @@ export function AgentChat() {
   const { data: project } = useGetProject(projectId, {
     query: { queryKey: getGetProjectQueryKey(projectId) },
   });
+  const { data: me } = useGetMe({ query: { queryKey: getGetMeQueryKey() } });
+  const isMaxBuilders = (me as any)?.plan === "max_builders";
   const { data: savedMessages = [], isLoading } = useListMessages(projectId, {
     query: { queryKey: getListMessagesQueryKey(projectId) },
   });
@@ -1157,6 +1161,14 @@ export function AgentChat() {
                   </svg>
                   GitHub
                 </button>
+              )}
+
+              {isMaxBuilders && (
+                <span className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border border-amber-500/30 bg-amber-500/8"
+                  style={{ background: "linear-gradient(135deg,rgba(245,158,11,0.08),rgba(234,88,12,0.08))" }}>
+                  <span className="text-amber-500">⚡</span>
+                  <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">MAX</span>
+                </span>
               )}
 
               {aiSourceLabel && connectionStatus === "streaming" && (

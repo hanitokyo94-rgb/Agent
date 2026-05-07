@@ -184,8 +184,14 @@ export function Sidebar({ currentProjectId, onClose }: SidebarProps) {
               />
             </div>
             <div className="flex items-center justify-between mt-1">
-              <span className="text-[10px] text-muted-foreground/50 capitalize">{user.plan} plan</span>
-              {creditsPercent >= 80 && (
+              {user.plan === "max_builders" ? (
+                <span className="flex items-center gap-1 text-[10px] font-bold bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">
+                  ⚡ MAX BUILDERS
+                </span>
+              ) : (
+                <span className="text-[10px] text-muted-foreground/50 capitalize">{user.plan} plan</span>
+              )}
+              {creditsPercent >= 80 && user.plan !== "max_builders" && (
                 <span className="text-[10px] text-destructive font-medium">Running low</span>
               )}
             </div>
