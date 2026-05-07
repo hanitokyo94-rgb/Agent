@@ -49,5 +49,22 @@
     "creditsUsed": 0,
     "plan": "free",
     "createdAt": "2026-05-07T02:04:36.306Z"
+  },
+  {
+    "id": "0cf60617-0964-4af6-b766-8fe3fe0da61e",
+    "name": "hani",
+    "email": "hani@gmail.com",
+    "passwordHash": "$2b$10$dFzsn1H43dvS1oh2N9z6fuNh/0hif1sp8loKqIOqSqyT8cH7DbC.a",
+    "avatar": null,
+    "onboardingCompleted": false,
+    "skillLevel": null,
+    "category": null,
+    "adSource": null,
+    "country": "DZ",
+    "language": "en",
+    "credits": 20,
+    "creditsUsed": 0,
+    "plan": "free",
+    "createdAt": "2026-05-07T14:58:28.232Z"
   }
 ]

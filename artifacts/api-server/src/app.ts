@@ -45,9 +45,10 @@ app.use("/api/uploads", express.static(getUploadsDir()));
 app.use("/api", router);
 
 // ── Fallback: serve built frontend in production, helpful message in dev ─────
-const frontendDist = path.resolve(process.cwd(), "../../app/dist");
+// Vite builds to dist/public (see vite.config.ts → build.outDir)
+const frontendDist = path.resolve(process.cwd(), "../../app/dist/public");
 if (process.env.NODE_ENV === "production" && fs.existsSync(path.join(frontendDist, "index.html"))) {
-  app.use(express.static(frontendDist));
+  app.use(express.static(frontendDist, { maxAge: "1h" }));
   app.get("*", (_req, res) => {
     res.sendFile(path.join(frontendDist, "index.html"));
   });
