@@ -70,6 +70,7 @@ const TOOL_CONFIG: Record<string, { label: string; icon: string; color: string }
   get_secrets:          { label: "Reading secrets",icon: "🔑", color: "yellow" },
   request_secret:       { label: "Needs key",      icon: "🔑", color: "orange" },
   deploy_to_vercel:     { label: "Deploying",      icon: "🚀", color: "emerald" },
+  expo_snack:           { label: "Uploading to Expo", icon: "📱", color: "emerald" },
   message_notify:       { label: "Notify",         icon: "💬", color: "blue" },
   task_done:            { label: "Complete",        icon: "✅", color: "emerald" },
 };
@@ -283,6 +284,10 @@ export function AgentChat() {
   const [githubCommitMsg, setGithubCommitMsg] = useState("");
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [aiSourceLabel, setAiSourceLabel] = useState<string | null>(null);
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionCursorInfo, setMentionCursorInfo] = useState<{ start: number; end: number } | null>(null);
+  const [expoSnacks, setExpoSnacks] = useState<Record<string, { url: string; qrUrl: string; snackId: string }>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -457,9 +462,21 @@ export function AgentChat() {
 
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value;
+    const cursorPos = e.target.selectionStart ?? val.length;
     setInput(val);
     e.target.style.height = "auto";
     e.target.style.height = Math.min(e.target.scrollHeight, 220) + "px";
+
+    const textBefore = val.slice(0, cursorPos);
+    const mentionMatch = textBefore.match(/@([\w./]*)$/);
+    if (mentionMatch) {
+      setMentionQuery(mentionMatch[1]);
+      setMentionCursorInfo({ start: cursorPos - mentionMatch[0].length, end: cursorPos });
+      setShowMentionMenu(true);
+      setShowSlashMenu(false);
+      return;
+    }
+    setShowMentionMenu(false);
 
     // Detect slash command — show menu when input starts with "/" and has no space yet
     if (val.startsWith("/") && !val.includes(" ") && !activeSkill) {
@@ -468,6 +485,23 @@ export function AgentChat() {
     } else {
       setShowSlashMenu(false);
     }
+  }
+
+  function selectMentionFile(filePath: string) {
+    if (!mentionCursorInfo) return;
+    const before = input.slice(0, mentionCursorInfo.start);
+    const after = input.slice(mentionCursorInfo.end);
+    const newInput = before + `@${filePath}` + (after.startsWith(" ") || after === "" ? "" : " ") + after;
+    setInput(newInput);
+    setShowMentionMenu(false);
+    setMentionCursorInfo(null);
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const pos = mentionCursorInfo.start + filePath.length + 1;
+        textareaRef.current.setSelectionRange(pos, pos);
+        textareaRef.current.focus();
+      }
+    }, 20);
   }
 
   function selectSkill(skill: Skill) {
@@ -685,6 +719,12 @@ export function AgentChat() {
                   setDeployUrl(data.url);
                   setDeployBanner(data.url);
                   break;
+                case "expo_snack":
+                  setExpoSnacks((prev) => ({
+                    ...prev,
+                    [aiMsgId]: { url: data.url, qrUrl: data.qrUrl, snackId: data.snackId },
+                  }));
+                  break;
                 case "done":
                   if (data.role !== undefined) {
                     setStreamingMessages((prev) =>
@@ -733,6 +773,10 @@ export function AgentChat() {
   }, [input, isStreaming, projectId, queryClient, pendingAttachments]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Escape") {
+      if (showMentionMenu) { setShowMentionMenu(false); e.preventDefault(); return; }
+      if (showSlashMenu) { setShowSlashMenu(false); e.preventDefault(); return; }
+    }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       sendMessage();
@@ -832,6 +876,20 @@ export function AgentChat() {
       },
     },
     { separator: true },
+    {
+      label: "Build Mobile App",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+          <line x1="12" y1="18" x2="12.01" y2="18"/>
+        </svg>
+      ),
+      onClick: () => {
+        setInput("Build a React Native mobile app with Expo. Create a well-designed app with multiple screens, navigation, and upload it to Expo Snack so I can scan the QR code with Expo Go on my phone.");
+        setShowMenu(false);
+      },
+      badge: "Expo",
+    },
     {
       label: "API Keys",
       icon: (
@@ -1045,6 +1103,7 @@ export function AgentChat() {
                   onOpenCode={(p, c) => setCodeViewFile({ path: p, content: c })}
                   onCopy={(content, id) => copyMessage(content, id)}
                   copiedId={copiedMsgId}
+                  expoSnack={expoSnacks[msg.id]}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -1126,6 +1185,36 @@ export function AgentChat() {
                   </div>
                 )}
 
+                {/* @ mention file picker — floats above input */}
+                {showMentionMenu && (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 z-50">
+                    <div className="bg-popover border border-border rounded-xl shadow-lg overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/60">
+                        <span className="text-xs font-medium text-muted-foreground">@ mention file</span>
+                        <span className="ml-auto text-[10px] text-muted-foreground/50">Esc to close</span>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto py-1">
+                        {files
+                          .filter((f) => !f.isDir && (mentionQuery === "" || f.path.toLowerCase().includes(mentionQuery.toLowerCase())))
+                          .slice(0, 12)
+                          .map((f) => (
+                            <button
+                              key={f.path}
+                              onMouseDown={(e) => { e.preventDefault(); selectMentionFile(f.path); }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted transition-colors"
+                            >
+                              <span className="text-xs opacity-60">{f.path.endsWith(".tsx") || f.path.endsWith(".ts") ? "📘" : f.path.endsWith(".json") ? "📋" : f.path.endsWith(".css") ? "🎨" : "📄"}</span>
+                              <span className="text-xs font-mono text-foreground truncate">{f.path}</span>
+                            </button>
+                          ))}
+                        {files.filter((f) => !f.isDir && (mentionQuery === "" || f.path.toLowerCase().includes(mentionQuery.toLowerCase()))).length === 0 && (
+                          <p className="text-xs text-muted-foreground px-3 py-2">No matching files</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden focus-within:border-border transition-all">
                 <textarea
                   ref={textareaRef}
@@ -1137,7 +1226,7 @@ export function AgentChat() {
                       ? `Describe what you want to ${activeSkill.name}... (optional)`
                       : isStreaming
                       ? "Type to queue next message..."
-                      : "Ask anything, or type / for skills..."
+                      : "Ask anything · / for skills · @ to mention a file"
                   }
                   rows={1}
                   className="w-full px-4 pt-3.5 pb-2 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/70 max-h-[220px]"
@@ -1680,9 +1769,56 @@ function ToolActivitySkeleton({ toolName, args }: { toolName: string; args: Reco
   );
 }
 
+// ── Expo Snack QR card ────────────────────────────────────────────────
+function ExpoSnackCard({ snack }: { snack: { url: string; qrUrl: string; snackId: string } }) {
+  return (
+    <div className="mt-2 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl overflow-hidden bg-emerald-50/40 dark:bg-emerald-900/10">
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/10 border-b border-emerald-200 dark:border-emerald-800/60">
+        <span className="text-base">📱</span>
+        <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Live on Expo Snack</span>
+        <span className="ml-auto text-[11px] text-emerald-600/70 dark:text-emerald-400/60">Test on your phone</span>
+      </div>
+      <div className="flex items-center gap-5 p-4">
+        <img
+          src={snack.qrUrl}
+          alt="QR Code for Expo Go"
+          className="w-28 h-28 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-white shrink-0"
+        />
+        <div className="space-y-3 min-w-0">
+          <div>
+            <p className="text-sm font-medium text-foreground mb-0.5">Scan to open in Expo Go</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Install <strong>Expo Go</strong> on your phone (iOS/Android), then scan the QR code to launch the app instantly.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href={snack.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+              </svg>
+              Open in browser
+            </a>
+            <button
+              onClick={() => navigator.clipboard.writeText(snack.url)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border bg-background hover:bg-muted transition-colors text-muted-foreground"
+            >
+              Copy link
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Message bubble ───────────────────────────────────────────────────
 function MessageBubble({
-  msg, tools, notifies, onOpenCode, onCopy, copiedId,
+  msg, tools, notifies, onOpenCode, onCopy, copiedId, expoSnack,
 }: {
   msg: StreamMessage;
   tools: ToolEvent[];
@@ -1690,6 +1826,7 @@ function MessageBubble({
   onOpenCode: (path: string, content: string) => void;
   onCopy?: (content: string, id: string) => void;
   copiedId?: string | null;
+  expoSnack?: { url: string; qrUrl: string; snackId: string };
 }) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
@@ -1876,6 +2013,9 @@ function MessageBubble({
             className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 transition-colors shrink-0">Open →</a>
         </div>
       )}
+
+      {/* ── Expo Snack QR card ── */}
+      {expoSnack && <ExpoSnackCard snack={expoSnack} />}
 
       {/* ── Skeleton activity while tool runs and no content yet ── */}
       {msg.streaming && !msg.content && runningTool && (

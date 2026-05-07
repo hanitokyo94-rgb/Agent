@@ -257,6 +257,21 @@ const AGENT_TOOLS = [
       parameters: { type: "object", properties: {} },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "expo_snack",
+      description: "Upload the Expo/React Native mobile app to Expo Snack for instant preview. Returns a QR code the user can scan with Expo Go on their phone. Call AFTER writing all app files (App.tsx must exist at root).",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "App display name" },
+          description: { type: "string", description: "Brief app description" },
+        },
+        required: ["name"],
+      },
+    },
+  },
 ];
 
 function getSystemPrompt(lang: string | null | undefined, workspaceFileCount: number, platformUrl?: string): string {
@@ -303,6 +318,7 @@ Files Modified: [list]
 - Store secrets and manage env vars
 - Request secrets from user when needed (use request_secret tool)
 - Deploy projects to Vercel for live public URLs
+- Build Expo/React Native mobile apps and upload to Expo Snack for instant QR code preview on phone
 </capabilities>
 
 <agent_loop>
@@ -550,7 +566,100 @@ await fetch(\`\${BOBO_URL}/api/bobo/data/delete?key=users:123\`, { method: "DELE
 IMPORTANT: ALWAYS use Bobo Auth + Bobo Data in projects that need auth or storage. 
 Set the environment variables using set_secret tool and use them in .env files.
 Get the project's BOBO_PROJECT_KEY with get_secrets (it equals the projectId, visible in logs).
-</bobo_services>`;
+</bobo_services>
+
+<expo_mobile>
+## Building Expo / React Native Mobile Apps
+
+When the user asks to build a mobile app, use this structure and workflow:
+
+### Project structure:
+\`\`\`
+my-app/
+├── App.tsx                  # ← REQUIRED entry point (must be at root)
+├── app.json                 # Expo config: name, slug, version, sdkVersion
+├── package.json
+├── tsconfig.json
+├── babel.config.js
+├── assets/
+│   ├── icon.png
+│   └── splash.png
+├── src/
+│   ├── screens/             # Screen components (HomeScreen, ProfileScreen, etc.)
+│   ├── components/          # Reusable UI components
+│   ├── navigation/          # React Navigation setup
+│   ├── hooks/               # Custom hooks
+│   ├── lib/                 # Utilities, API client
+│   └── types/               # TypeScript types
+\`\`\`
+
+### Required package.json (minimal working Snack-compatible):
+\`\`\`json
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "main": "App.tsx",
+  "scripts": { "start": "expo start" },
+  "dependencies": {
+    "expo": "~52.0.0",
+    "expo-status-bar": "~2.0.0",
+    "react": "18.3.2",
+    "react-native": "0.76.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "typescript": "^5.3.0"
+  }
+}
+\`\`\`
+
+### Key libraries:
+- **React Navigation** — navigation: \`@react-navigation/native @react-navigation/stack @react-navigation/bottom-tabs\`
+- **Expo Router** — file-based navigation (alternative): \`expo-router\`
+- **NativeWind** — Tailwind for React Native: \`nativewind tailwindcss\`
+- **React Native Paper** — Material Design: \`react-native-paper\`
+- **Expo Vector Icons** — icons: \`@expo/vector-icons\` (bundled with Expo)
+- **React Native Reanimated** — animations: \`react-native-reanimated\`
+- **AsyncStorage** — local storage: \`@react-native-async-storage/async-storage\`
+
+### Example App.tsx:
+\`\`\`tsx
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+
+export default function App() {
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Hello World!</Text>
+      <StatusBar style="auto" />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  title: { fontSize: 24, fontWeight: 'bold' },
+});
+\`\`\`
+
+### Workflow for building mobile apps:
+1. Write App.tsx + all screens/components
+2. Write package.json + app.json + tsconfig.json + babel.config.js
+3. Call \`expo_snack\` tool — uploads all files to Expo Snack, returns a QR code
+4. User scans QR with Expo Go on their phone to test live
+
+### Snack limitations (keep code compatible):
+- No native modules requiring build steps
+- No local assets that can't be inline
+- Use CDN images when possible (via { uri: 'https://...' })
+- Stick to Expo SDK packages (expo-*, react-native-*)
+
+### After expo_snack succeeds, the UI shows a QR card — tell the user to:
+1. Install "Expo Go" on their phone (App Store / Play Store)
+2. Scan the QR code in the card
+3. The app opens instantly on their device
+</expo_mobile>`;
 
   if (isArabic) {
     return basePrompt + `
@@ -809,6 +918,74 @@ async function executeTool(
         return `✅ Deployed!\n🔗 Live URL: ${result.url}\n📦 Project: ${result.projectName}`;
       } catch (err: any) {
         return `❌ Deploy failed: ${err.message}`;
+      }
+    }
+
+    case "expo_snack": {
+      try {
+        const allFiles = listFilesRecursive(wsDir).filter((f) => !f.isDir);
+        const snackFiles: Record<string, { type: "CODE"; contents: string }> = {};
+        const textExts = new Set([".tsx", ".ts", ".js", ".jsx", ".json", ".css", ".md"]);
+        let hasEntry = false;
+
+        for (const file of allFiles) {
+          if (
+            file.path.includes("node_modules") ||
+            file.path.startsWith(".git") ||
+            file.path.includes("/.git/")
+          ) continue;
+          const ext = path.extname(file.path).toLowerCase();
+          if (!textExts.has(ext)) continue;
+          try {
+            const abs = path.join(wsDir, file.path);
+            const content = fs.readFileSync(abs, "utf-8");
+            if (content.length > 80000) continue;
+            snackFiles[file.path] = { type: "CODE", contents: content };
+            if (file.path === "App.tsx" || file.path === "App.js") hasEntry = true;
+          } catch {}
+        }
+
+        if (!hasEntry) {
+          return "❌ No Expo entry file found. The project must have App.tsx or App.js at the root.";
+        }
+
+        const payload = {
+          name: args.name ?? "My App",
+          description: args.description ?? "Built with AI Builder",
+          sdkVersion: "52.0.0",
+          files: snackFiles,
+        };
+
+        const response = await fetch("https://exp.host/--/api/v2/snack/save", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Expo-Platform": "web",
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(30000),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          return `❌ Expo Snack API error ${response.status}: ${errText.slice(0, 400)}`;
+        }
+
+        const result = await response.json() as any;
+        const snackId = result.hashId ?? result.id;
+        if (!snackId) {
+          return `❌ No snack ID in response: ${JSON.stringify(result).slice(0, 300)}`;
+        }
+
+        const snackUrl = `https://snack.expo.dev/${snackId}`;
+        const expoGoUrl = `exp://exp.host/${snackId}`;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(expoGoUrl)}&margin=10&bgcolor=ffffff`;
+
+        sendEvent("expo_snack", { url: snackUrl, qrUrl, snackId, expoGoUrl });
+
+        return `✅ Uploaded to Expo Snack!\n🔗 Snack URL: ${snackUrl}\n📱 Scan with Expo Go to test live on your phone`;
+      } catch (err: any) {
+        return `❌ expo_snack failed: ${err.message}`;
       }
     }
 
