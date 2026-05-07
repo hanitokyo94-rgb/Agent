@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.resolve(__dirname, "../../../../data");
+const DATA_DIR = path.resolve(__dirname, "../../../../agentdata");
 
 function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -60,7 +60,7 @@ export function findWhere<T>(name: string, predicate: (item: T) => boolean): T[]
   return readCollection<T>(name).filter(predicate);
 }
 
-const UPLOADS_DIR = path.resolve(__dirname, "../../../../data/uploads");
+const UPLOADS_DIR = path.resolve(__dirname, "../../../../agentdata/uploads");
 
 export function getUploadsDir(): string {
   ensureDir(UPLOADS_DIR);

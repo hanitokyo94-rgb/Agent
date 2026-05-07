@@ -11,7 +11,7 @@ const execAsync = promisify(exec);
 const router = Router();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACES_DIR = path.resolve(__dirname, "../../../../data/workspaces");
+const WORKSPACES_DIR = path.resolve(__dirname, "../../../../agentdata/projects");
 
 function getWorkspaceDir(projectId: string): string {
   const dir = path.join(WORKSPACES_DIR, projectId);
@@ -26,11 +26,18 @@ function getUserId(req: any): string | null {
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       try {
-        const decoded = Buffer.from(token, "base64").toString("utf-8");
+        const decoded = Buffer.from(token, "utf-8").toString("utf-8");
         userId = decoded.split(":")[0];
       } catch {
         return null;
       }
+    }
+    if (!userId && req.headers.authorization?.startsWith("Bearer ")) {
+      try {
+        const token = req.headers.authorization.slice(7);
+        const decoded = Buffer.from(token, "base64").toString("utf-8");
+        userId = decoded.split(":")[0];
+      } catch { return null; }
     }
   }
   return userId ?? null;
@@ -41,7 +48,7 @@ function listFilesRecursive(dir: string, base = ""): Array<{ path: string; size:
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".secrets.json") continue;
       const relPath = base ? `${base}/${entry.name}` : entry.name;
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -176,10 +183,8 @@ router.post("/projects/:projectId/run", async (req, res) => {
   const wsDir = getWorkspaceDir(req.params.projectId);
   const secrets = getProjectSecrets(req.params.projectId);
 
-  // Kill any existing process for this project
   killProject(req.params.projectId);
 
-  // Determine entry point
   const entryFiles = ["index.ts", "src/index.ts", "index.js", "src/index.js"];
   let entry = "index.ts";
   for (const f of entryFiles) {
@@ -216,14 +221,8 @@ router.post("/projects/:projectId/fetch", async (req, res) => {
     });
     const contentType = response.headers.get("content-type") ?? "";
     const text = await response.text();
-    // Truncate large responses
     const truncated = text.length > 20000 ? text.slice(0, 20000) + "\n...[truncated]" : text;
-    res.json({
-      status: response.status,
-      contentType,
-      body: truncated,
-      url,
-    });
+    res.json({ status: response.status, contentType, body: truncated, url });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -250,7 +249,7 @@ router.put("/projects/:projectId/secrets", (req, res) => {
   res.json({ success: true });
 });
 
-// GET /api/projects/:projectId/preview (serves static files)
+// GET /api/projects/:projectId/preview
 router.get("/projects/:projectId/preview", (req, res) => {
   const wsDir = path.join(WORKSPACES_DIR, req.params.projectId);
   const distDir = path.join(wsDir, "dist");

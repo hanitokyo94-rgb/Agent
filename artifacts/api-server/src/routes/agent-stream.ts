@@ -1,7 +1,6 @@
 /**
  * Manus-inspired Agent Stream
  * POST /api/projects/:projectId/agent/stream
- * Single unified endpoint — AI auto-detects chat vs build intent
  */
 import { Router } from "express";
 import fs from "fs";
@@ -16,7 +15,6 @@ import type { User } from "./auth.js";
 const execAsync = promisify(exec);
 const router = Router();
 
-// ── Auth helper ────────────────────────────────────────────────────
 function getUserId(req: any): string | null {
   let userId = req.session?.userId;
   if (!userId) {
@@ -32,19 +30,15 @@ function getUserId(req: any): string | null {
   return userId ?? null;
 }
 
-// ── Tool definitions (Manus-style) ─────────────────────────────────
 const AGENT_TOOLS = [
-  // ── Messaging ──
   {
     type: "function" as const,
     function: {
       name: "message_notify",
-      description: "Send a progress update or status message to the user without stopping. Use for: acknowledging requests, reporting progress, explaining your plan. Do NOT use for delivering final results — use task_done for that.",
+      description: "Send a progress update to the user (non-blocking). Use for: acknowledging requests, reporting progress. NOT for final results — use task_done for that.",
       parameters: {
         type: "object",
-        properties: {
-          text: { type: "string", description: "Notification message text" },
-        },
+        properties: { text: { type: "string", description: "Notification message" } },
         required: ["text"],
       },
     },
@@ -53,29 +47,27 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "task_done",
-      description: "Signal that the current task is fully complete. Send the final summary/result to the user. Always call this when the task is done — it marks completion in the UI.",
+      description: "REQUIRED: Signal task completion. Call this ALWAYS when finished. Include a full summary with all results, URLs, file paths. This marks completion in the UI — without it the task appears unfinished.",
       parameters: {
         type: "object",
         properties: {
-          summary: { type: "string", description: "Complete summary of what was accomplished, results, file paths, URLs, etc." },
+          summary: { type: "string", description: "Complete summary with results, file paths, URLs, next steps" },
         },
         required: ["summary"],
       },
     },
   },
-
-  // ── File operations ──
   {
     type: "function" as const,
     function: {
       name: "file_write",
-      description: "Write or overwrite a file in the project workspace. Creates parent directories automatically. Use for creating new files or completely replacing file content.",
+      description: "Write or overwrite a file. Creates parent directories automatically.",
       parameters: {
         type: "object",
         properties: {
-          file: { type: "string", description: "Relative file path e.g. src/index.ts or public/index.html" },
-          content: { type: "string", description: "Complete file content to write" },
-          append: { type: "boolean", description: "If true, append to existing file instead of overwriting" },
+          file: { type: "string", description: "Relative file path e.g. src/index.ts" },
+          content: { type: "string", description: "Complete file content" },
+          append: { type: "boolean", description: "If true, append instead of overwrite" },
         },
         required: ["file", "content"],
       },
@@ -85,13 +77,13 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "file_read",
-      description: "Read the content of a file in the project workspace. Optionally specify line range.",
+      description: "Read a file from the project workspace.",
       parameters: {
         type: "object",
         properties: {
           file: { type: "string", description: "Relative file path" },
-          start_line: { type: "integer", description: "Optional: 0-based starting line to read from" },
-          end_line: { type: "integer", description: "Optional: end line (exclusive)" },
+          start_line: { type: "integer", description: "Optional 0-based start line" },
+          end_line: { type: "integer", description: "Optional end line (exclusive)" },
         },
         required: ["file"],
       },
@@ -101,12 +93,12 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "file_str_replace",
-      description: "Replace an exact string within a file. Use for targeted edits — more efficient than rewriting the whole file. The old_str must match exactly.",
+      description: "Replace exact string in a file. More efficient than rewriting whole file.",
       parameters: {
         type: "object",
         properties: {
           file: { type: "string", description: "Relative file path" },
-          old_str: { type: "string", description: "Exact string to find and replace" },
+          old_str: { type: "string", description: "Exact string to find (must match exactly)" },
           new_str: { type: "string", description: "Replacement string" },
         },
         required: ["file", "old_str", "new_str"],
@@ -117,12 +109,10 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "file_find_by_name",
-      description: "Find files by name pattern (glob) in the project workspace.",
+      description: "Find files by name pattern (glob) in workspace.",
       parameters: {
         type: "object",
-        properties: {
-          glob: { type: "string", description: "Glob pattern e.g. '*.ts' or 'src/**/*.tsx'" },
-        },
+        properties: { glob: { type: "string", description: "Glob pattern e.g. '*.ts' or 'src/**/*.tsx'" } },
         required: ["glob"],
       },
     },
@@ -131,12 +121,12 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "file_find_in_content",
-      description: "Search for text or regex pattern within files in the workspace.",
+      description: "Search for text/regex within files.",
       parameters: {
         type: "object",
         properties: {
           regex: { type: "string", description: "Search pattern (regex or plain text)" },
-          file: { type: "string", description: "Optional: specific file to search in. If omitted, searches all files." },
+          file: { type: "string", description: "Optional: specific file to search in" },
         },
         required: ["regex"],
       },
@@ -157,25 +147,21 @@ const AGENT_TOOLS = [
       description: "Delete a file from the project workspace.",
       parameters: {
         type: "object",
-        properties: {
-          file: { type: "string", description: "Relative file path to delete" },
-        },
+        properties: { file: { type: "string", description: "Relative file path to delete" } },
         required: ["file"],
       },
     },
   },
-
-  // ── Shell ──
   {
     type: "function" as const,
     function: {
       name: "shell_exec",
-      description: "Execute a shell command in the project workspace. Use for: running builds, compiling TypeScript, running tests, starting servers briefly, checking installed packages, git operations, etc. Chains with && are supported. Timeout: 90 seconds.",
+      description: "Execute a shell command in the project workspace. Timeout: 90s max. Use for: builds, tests, git ops, checking packages.",
       parameters: {
         type: "object",
         properties: {
-          command: { type: "string", description: "Shell command to execute. Use -y/-f flags to avoid interactive prompts." },
-          timeout: { type: "integer", description: "Optional timeout in seconds (default: 90, max: 300)" },
+          command: { type: "string", description: "Shell command. Use -y/-f flags to avoid prompts." },
+          timeout: { type: "integer", description: "Timeout in seconds (default: 90, max: 300)" },
         },
         required: ["command"],
       },
@@ -185,35 +171,29 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "install_packages",
-      description: "Install npm packages into the project workspace via npm install.",
+      description: "Install npm packages into the project workspace.",
       parameters: {
         type: "object",
         properties: {
-          packages: {
-            type: "array",
-            items: { type: "string" },
-            description: "Package names to install e.g. ['express', '@types/express', 'typescript']",
-          },
-          dev: { type: "boolean", description: "If true, install as devDependencies (--save-dev)" },
+          packages: { type: "array", items: { type: "string" }, description: "Package names to install" },
+          dev: { type: "boolean", description: "If true, install as devDependencies" },
         },
         required: ["packages"],
       },
     },
   },
-
-  // ── Web ──
   {
     type: "function" as const,
     function: {
       name: "fetch_url",
-      description: "Fetch content from a URL. Use for: reading API docs, downloading data, checking APIs, reading GitHub raw files, fetching web pages. Returns page content as text.",
+      description: "Fetch content from a URL. Returns page content as text.",
       parameters: {
         type: "object",
         properties: {
           url: { type: "string", description: "Full URL including protocol" },
           method: { type: "string", enum: ["GET", "POST", "PUT", "DELETE"], description: "HTTP method (default: GET)" },
           body: { type: "string", description: "Optional request body for POST/PUT" },
-          headers: { type: "object", description: "Optional HTTP headers as key-value pairs" },
+          headers: { type: "object", description: "Optional HTTP headers" },
         },
         required: ["url"],
       },
@@ -223,27 +203,23 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "web_search",
-      description: "Search the web for information. Use for: finding documentation, researching libraries, getting latest info, finding examples.",
+      description: "Search the web for information, docs, examples.",
       parameters: {
         type: "object",
-        properties: {
-          query: { type: "string", description: "Search query (3-5 keywords, Google-style)" },
-        },
+        properties: { query: { type: "string", description: "Search query (3-5 keywords)" } },
         required: ["query"],
       },
     },
   },
-
-  // ── Secrets & Config ──
   {
     type: "function" as const,
     function: {
       name: "set_secret",
-      description: "Store a secret or environment variable for the project. These are injected as env vars when running the project.",
+      description: "Store a secret/env var for the project. Injected as env vars at runtime.",
       parameters: {
         type: "object",
         properties: {
-          key: { type: "string", description: "Environment variable name e.g. DATABASE_URL" },
+          key: { type: "string", description: "Env var name e.g. DATABASE_URL" },
           value: { type: "string", description: "Secret value" },
         },
         required: ["key", "value"],
@@ -254,127 +230,131 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "get_secrets",
-      description: "List the names (not values) of stored project secrets/environment variables.",
+      description: "List names (not values) of stored project secrets.",
       parameters: { type: "object", properties: {} },
     },
   },
-
-  // ── Deploy ──
+  {
+    type: "function" as const,
+    function: {
+      name: "request_secret",
+      description: "Ask the user to provide a required API key or secret. Use when you need a key that isn't stored yet. The user will be prompted to enter it.",
+      parameters: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "The env var name needed e.g. GOOGLE_API_KEY" },
+          description: { type: "string", description: "What this key is used for (shown to user)" },
+        },
+        required: ["key", "description"],
+      },
+    },
+  },
   {
     type: "function" as const,
     function: {
       name: "deploy_to_vercel",
-      description: "Deploy the project to Vercel and get a public live URL. Call AFTER the project is built and tested. On subsequent calls, redeploys to the same URL. Handles both static sites and Node.js apps.",
+      description: "Deploy project to Vercel for a live public URL. Call AFTER building and testing.",
       parameters: { type: "object", properties: {} },
     },
   },
 ];
 
-// ── System prompt (Manus-inspired) ────────────────────────────────
 function getSystemPrompt(lang: string | null | undefined, workspaceFileCount: number): string {
   const isArabic = lang === "ar" || lang?.startsWith("ar");
-
   const filesContext = workspaceFileCount > 0
-    ? (isArabic ? `\nالمشروع يحتوي حالياً على ${workspaceFileCount} ملف في مساحة العمل.` : `\nProject currently has ${workspaceFileCount} files in workspace.`)
-    : "";
+    ? `\n[Workspace: ${workspaceFileCount} files currently in project]`
+    : `\n[Workspace: empty — no files yet]`;
 
-  if (isArabic) {
-    return `أنت وكيل ذكاء اصطناعي متقدم — مدعوم بقدرات مشابهة لـ Manus AI. تعمل في بيئة Linux مع وصول كامل للإنترنت.${filesContext}
+  const basePrompt = `You are an advanced autonomous coding agent — a hybrid of Claude, Manus, OpenCode, and Replit Agent.${filesContext}
 
-<قدراتك>
-- قراءة وكتابة وتعديل الملفات بدقة عالية
-- تنفيذ أوامر shell ومعالجة النتائج
-- تثبيت حزم npm وإدارة المشاريع
-- تصفح الإنترنت وجلب API والمستندات
-- البحث في الويب للمعلومات الحديثة
-- حفظ الـ secrets وإدارة متغيرات البيئة
-- نشر المشاريع على Vercel والحصول على روابط حية
-</قدراتك>
+<streaming_style>
+Stream your thinking live like a terminal. Divide work into phases with clear titles.
+Show progress before answers. Use concise engineering language that feels "alive".
 
-<طريقة العمل>
-1. **حلل الطلب**: افهم ماذا يريد المستخدم بدقة
-2. **قرر النوع تلقائياً**:
-   - طلب محادثة/سؤال/معلومات → أجب مباشرة بدون أدوات (أو بأدوات محدودة مثل web_search)
-   - طلب بناء/كود/مشروع → استخدم الأدوات الكاملة للبناء والنشر
-   - لا تسأل المستخدم "هل تريد محادثة أم بناء؟" — اكتشف بنفسك
-3. **نفّذ بترتيب منطقي**: للمشاريع، اتبع هذا الترتيب:
-   - file_write (package.json أولاً) → file_write (باقي الملفات) → install_packages → shell_exec (build/test) → deploy_to_vercel
-4. **أخبر المستخدم بالتقدم**: استخدم message_notify لكل خطوة مهمة
-5. **أنهِ بـ task_done**: عند اكتمال أي مهمة، لخّص النتيجة
-</طريقة العمل>
+Format your responses using markdown cards:
+### 🔍 Reading project structure
+### 📝 Analyzing the issue  
+### ⚡ Applying fix
+### ✅ Final result
 
-<قواعد البناء>
-- ابدأ دائماً بـ package.json مع جميع dependencies
-- TypeScript للـ backend دائماً
-- Frontend: HTML/CSS/JS احترافي أو React مع Vite
-- لا placeholders، لا TODO، لا mock data — كود حقيقي قابل للتشغيل فقط
-- عند تعديل ملف موجود: استخدم file_str_replace بدلاً من إعادة كتابة الملف كله
-- بعد التثبيت والبناء: اختبر أن كل شيء يعمل ثم انشر على Vercel
-</قواعد البناء>
+Use terminal-style output:
+\`\`\`
+Scanning repository...
+Found 12 matching files
+Analyzing issue...
+Applying patch...
+✓ Done
+\`\`\`
 
-<قواعد التواصل>
-- استخدم message_notify للتحديثات المؤقتة
-- استخدم task_done عند الانتهاء من أي مهمة
-- تكلم بنفس لغة المستخدم
-- لا قوائم مطوّلة في ردودك — استخدم نصاً متدفقاً
-- كن مباشراً ومختصراً في التحديثات، مفصّلاً في النتائج
-</قواعد التواصل>`;
-  }
-
-  return `You are an advanced AI agent — powered with capabilities similar to Manus AI. You operate in a Linux environment with full internet access and a project workspace.${filesContext}
+Show artifact summaries after generating code:
+────────────────────────────
+Artifact: [name]
+Language: [TypeScript/Python/etc]
+Files Modified: [list]
+────────────────────────────
+</streaming_style>
 
 <capabilities>
-- Read, write, and precisely edit files (targeted string replacements)
+- Read, write, precisely edit files (targeted replacements)
 - Execute shell commands and process results
 - Install npm packages and manage projects
-- Browse the web, fetch APIs and documentation
-- Search the web for up-to-date information
-- Store secrets and manage environment variables
-- Deploy projects to Vercel and provide live public URLs
+- Browse web, fetch APIs and documentation
+- Search web for up-to-date info
+- Store secrets and manage env vars
+- Request secrets from user when needed (use request_secret tool)
+- Deploy projects to Vercel for live public URLs
 </capabilities>
 
 <agent_loop>
 You operate iteratively:
-1. Analyze the user's request to understand the true intent
-2. Auto-detect the task type — NO need to ask the user to switch modes:
-   - Conversation/question/information → respond directly (use web_search if needed for current info)
-   - Build/code/project/automation → use the full tool suite to build, test, and deploy
-   - The AI determines intent — never ask "do you want chat or build mode?"
-3. Execute in logical order. For projects:
-   file_write (package.json first) → file_write (source files) → install_packages → shell_exec (build/test) → deploy_to_vercel
+1. Analyze user request — understand the TRUE intent
+2. Auto-detect task type (NEVER ask user "do you want chat or build mode?"):
+   - Conversation/question → respond with reasoning, use web_search if needed
+   - Build/code/project → use full tool suite: write files, install, build, deploy
+3. Execute in logical order:
+   file_write (package.json first) → file_write (source) → install_packages → shell_exec (build/test) → deploy_to_vercel
 4. Notify progress with message_notify at each meaningful step
-5. End every task with task_done — summarize what was accomplished
+5. ALWAYS end with task_done — NEVER finish without calling it
 </agent_loop>
 
 <build_rules>
-- Always start with package.json containing ALL required dependencies
-- TypeScript for backend always — never plain JS for backend
-- Frontend: professional HTML/CSS/JS or React with Vite
-- NO placeholders, NO TODO comments, NO mock data — real executable code only
-- For editing existing files: prefer file_str_replace over rewriting the whole file
-- Chain shell commands with && to minimize roundtrips: e.g. "cd .. && npm install && npm run build"
-- After installing and building: verify it works, then deploy to Vercel automatically
-- Use web_search + fetch_url to find correct APIs, docs, and latest package versions
+- Start with package.json containing ALL dependencies
+- TypeScript for backend ALWAYS
+- Frontend: professional HTML/CSS/JS or React+Vite
+- NO placeholders, NO TODO, NO mock data — real executable code only
+- For editing: prefer file_str_replace over rewriting entire files
+- Chain shell commands: e.g. "npm install && npm run build"
+- After building: verify it works, then deploy
+- Use web_search + fetch_url to find correct docs and latest versions
 </build_rules>
 
-<communication_rules>
-- Use message_notify for intermediate progress updates (non-blocking)
-- Use task_done when fully completing any task — include all results, URLs, file paths
-- Match the user's language (Arabic/English)
-- Avoid bullet-point lists in responses — use flowing prose
-- Be concise in updates, thorough in final results
-- Never mention tool names to the user — say what you're doing naturally
-</communication_rules>
+<secrets_handling>
+- If you need an API key not stored yet, call request_secret to ask user
+- NEVER hardcode real secrets in files — always use env vars
+- Use .env file pattern with process.env.KEY_NAME
+</secrets_handling>
 
-<error_handling>
-- If a command fails, read the error and try alternative approaches
-- If a package install fails, check the error, try a different version or approach
-- After 3 failed attempts on the same step, notify the user and explain the situation
-- Never silently swallow errors — always report what happened
-</error_handling>`;
+<critical_rules>
+- ALWAYS call task_done when finished — this is REQUIRED, never skip it
+- If approaching iteration limit, call task_done with current progress summary
+- Never stop mid-task without explanation — always call task_done
+- Match user language (Arabic/English)
+- Be concise in updates, thorough in final results
+</critical_rules>`;
+
+  if (isArabic) {
+    return basePrompt + `
+
+<arabic_mode>
+تحدث العربية مع المستخدم. استخدم أسلوبًا تقنيًا مباشرًا.
+استمر في العمل حتى تكتمل المهمة — لا تتوقف في المنتصف أبدًا.
+اتصل دائمًا بـ task_done عند الانتهاء.
+</arabic_mode>`;
+  }
+
+  return basePrompt;
 }
 
-// ── Tool executor ──────────────────────────────────────────────────
 async function executeTool(
   name: string,
   args: Record<string, any>,
@@ -384,7 +364,6 @@ async function executeTool(
   const wsDir = getWorkspaceDir(projectId);
   const secrets = getProjectSecrets(projectId);
 
-  // Helper: safe path inside workspace
   const safePath = (p: string) => {
     const abs = path.resolve(wsDir, p.startsWith("/") ? p.slice(1) : p);
     if (!abs.startsWith(wsDir)) throw new Error("Path outside workspace");
@@ -392,10 +371,9 @@ async function executeTool(
   };
 
   switch (name) {
-    // ── Messaging ──
     case "message_notify": {
       sendEvent("notify", { text: args.text });
-      return `[Notification sent to user]`;
+      return `[Notification sent]`;
     }
 
     case "task_done": {
@@ -403,7 +381,6 @@ async function executeTool(
       return `[Task marked complete]`;
     }
 
-    // ── File ops ──
     case "file_write": {
       const abs = safePath(args.file);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -433,7 +410,7 @@ async function executeTool(
       if (!fs.existsSync(abs)) return `Error: File not found: ${args.file}`;
       const content = fs.readFileSync(abs, "utf-8");
       if (!content.includes(args.old_str)) {
-        return `Error: String not found in ${args.file}. Make sure old_str matches exactly (including whitespace).`;
+        return `Error: String not found in ${args.file}. Verify old_str matches exactly (including whitespace).`;
       }
       const updated = content.replace(args.old_str, args.new_str);
       fs.writeFileSync(abs, updated, "utf-8");
@@ -448,7 +425,6 @@ async function executeTool(
         });
         return result.trim() || "No files found matching pattern.";
       } catch {
-        // Fallback: manual glob
         const all = listFilesRecursive(wsDir);
         const pattern = args.glob.replace(/\*/g, ".*").replace(/\?/g, ".");
         const re = new RegExp(pattern, "i");
@@ -493,7 +469,6 @@ async function executeTool(
       return `✓ Deleted: ${args.file}`;
     }
 
-    // ── Shell ──
     case "shell_exec": {
       const timeoutMs = Math.min((args.timeout ?? 90) * 1000, 300000);
       try {
@@ -501,7 +476,7 @@ async function executeTool(
           cwd: wsDir,
           timeout: timeoutMs,
           env: { ...process.env, ...secrets, NODE_ENV: "production" },
-          maxBuffer: 1024 * 1024 * 4, // 4MB
+          maxBuffer: 1024 * 1024 * 4,
         });
         const out = [stdout, stderr].filter(Boolean).join("\n").trim();
         return out.length > 8000 ? out.slice(0, 8000) + "\n...[output truncated]" : out || "(command succeeded, no output)";
@@ -528,15 +503,11 @@ async function executeTool(
       }
     }
 
-    // ── Web ──
     case "fetch_url": {
       try {
         const res = await fetch(args.url, {
           method: args.method ?? "GET",
-          headers: {
-            "User-Agent": "Mozilla/5.0 AI-Agent/2.0",
-            ...(args.headers ?? {}),
-          },
+          headers: { "User-Agent": "Mozilla/5.0 AI-Agent/2.0", ...(args.headers ?? {}) },
           body: args.body ? args.body : undefined,
           signal: AbortSignal.timeout(30000),
         });
@@ -549,7 +520,6 @@ async function executeTool(
     }
 
     case "web_search": {
-      // Use DuckDuckGo HTML for search results
       try {
         const encoded = encodeURIComponent(args.query);
         const res = await fetch(`https://html.duckduckgo.com/html/?q=${encoded}`, {
@@ -557,7 +527,6 @@ async function executeTool(
           signal: AbortSignal.timeout(15000),
         });
         const html = await res.text();
-        // Extract result text
         const results: string[] = [];
         const re = /class="result__title"[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>[\s\S]*?class="result__snippet"[^>]*>(.*?)<\/div>/gm;
         let m;
@@ -568,7 +537,6 @@ async function executeTool(
           if (title && snippet) results.push(`**${title}**\n${decodeURIComponent(url)}\n${snippet}`);
         }
         if (results.length === 0) {
-          // fallback: extract visible text
           const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 4000);
           return `Search results for "${args.query}":\n${text}`;
         }
@@ -578,7 +546,6 @@ async function executeTool(
       }
     }
 
-    // ── Secrets ──
     case "set_secret": {
       const current = getProjectSecrets(projectId);
       current[args.key] = args.value;
@@ -595,10 +562,14 @@ async function executeTool(
       return `Stored secrets (names only):\n${keys.join("\n")}`;
     }
 
-    // ── Deploy ──
+    case "request_secret": {
+      sendEvent("request_secret", { key: args.key, description: args.description });
+      return `[Waiting for user to provide: ${args.key}]`;
+    }
+
     case "deploy_to_vercel": {
       const token = process.env.VERCEL_TOKEN;
-      if (!token) return "❌ VERCEL_TOKEN not configured. Ask the user to add it in project settings.";
+      if (!token) return "❌ VERCEL_TOKEN not configured. Use request_secret to ask the user for it.";
       try {
         const project = findById<any>("projects", projectId);
         const result = await deployToVercel(
@@ -614,9 +585,8 @@ async function executeTool(
           vercelProjectName: result.projectName,
           lastDeployedAt: new Date().toISOString(),
         });
-        // Notify frontend of the deploy URL
         sendEvent("deploy_done", { url: result.url });
-        return `✅ Deployed successfully!\n🔗 Live URL: ${result.url}\n📦 Project: ${result.projectName}\n📊 Status: ${result.readyState}`;
+        return `✅ Deployed!\n🔗 Live URL: ${result.url}\n📦 Project: ${result.projectName}`;
       } catch (err: any) {
         return `❌ Deploy failed: ${err.message}`;
       }
@@ -627,7 +597,6 @@ async function executeTool(
   }
 }
 
-// ── Stream endpoint ────────────────────────────────────────────────
 router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -644,7 +613,6 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const users = findWhere<User>("users", (u) => u.id === userId);
   const user = users[0];
 
-  // SSE headers
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -652,7 +620,9 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   res.flushHeaders();
 
   const sendEvent = (event: string, data: unknown) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch {}
   };
 
   // Save user message
@@ -673,33 +643,43 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const allMsgs = findWhere<any>("messages", (m) => m.projectId === req.params.projectId);
   allMsgs.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  // Count workspace files for context
   const wsDir = getWorkspaceDir(req.params.projectId);
   const wsFiles = fs.existsSync(wsDir) ? listFilesRecursive(wsDir).filter((f) => !f.isDir) : [];
 
   const OpenAI = (await import("openai")).default;
   const client = new OpenAI({ apiKey: process.env.AI_API_KEY, baseURL: process.env.AI_BASE_URL });
 
+  // Build initial messages — use last 20 for context
+  const historyMessages = allMsgs.slice(-20).map((m: any) => ({ role: m.role, content: m.content }));
+
   const messages: any[] = [
     { role: "system", content: getSystemPrompt(user?.language, wsFiles.length) },
-    // Include last 16 messages for context
-    ...allMsgs.slice(-16).map((m: any) => ({ role: m.role, content: m.content })),
+    ...historyMessages,
   ];
 
   const aiMsgId = (await import("uuid")).v4();
   let fullContent = "";
   const toolsUsed: string[] = [];
-  const model = process.env.AI_MODEL ?? "anthropic/claude-opus-4-6";
-  // Qwen3 and some models emit <think>...</think> blocks — strip from user-facing content
+  const model = process.env.AI_MODEL ?? "anthropic/claude-opus-4-5";
   const isThinkingModel = model.toLowerCase().includes("qwen") || model.toLowerCase().includes("deepseek-r") || model.toLowerCase().includes("qwq");
 
   try {
     let continueLoop = true;
     let iterations = 0;
-    const MAX_ITERATIONS = 20;
+    const MAX_ITERATIONS = 40;
+    let taskDoneCalled = false;
 
-    while (continueLoop && iterations < MAX_ITERATIONS) {
+    while (continueLoop && iterations < MAX_ITERATIONS && !taskDoneCalled) {
       iterations++;
+
+      // Prune tool messages if context is too large (keep last 30 messages)
+      if (messages.length > 40) {
+        const systemMsg = messages[0];
+        const recent = messages.slice(-30);
+        // Ensure we don't break tool_call/tool_result pairs
+        messages.length = 0;
+        messages.push(systemMsg, ...recent);
+      }
 
       const reqParams: any = {
         model,
@@ -709,86 +689,88 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         max_tokens: 8192,
         stream: true,
       };
-      // Qwen3: disable built-in thinking to avoid conflicts with tool calling
       if (isThinkingModel) {
         reqParams.extra_body = { enable_thinking: false };
       }
 
-      const stream = await client.chat.completions.create(reqParams);
+      let stream: any;
+      try {
+        stream = await client.chat.completions.create(reqParams);
+      } catch (err: any) {
+        sendEvent("error", { message: `API error: ${err.message}` });
+        break;
+      }
 
       let iterText = "";
       let thinkBuffer = "";
       let inThink = false;
       const toolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+      let finishReason = "";
 
-      for await (const chunk of stream) {
-        const choice = chunk.choices[0];
-        if (!choice) continue;
-        const delta = choice.delta;
+      try {
+        for await (const chunk of stream) {
+          const choice = chunk.choices[0];
+          if (!choice) continue;
+          const delta = choice.delta;
 
-        if (delta.content) {
-          // Handle <think>...</think> tokens from Qwen3 / DeepSeek-R1
-          if (isThinkingModel) {
-            let text = delta.content;
-            // Feed into think-filter
-            thinkBuffer += text;
-
-            // Extract visible content (outside <think> blocks)
-            let visible = "";
-            let buf = thinkBuffer;
-            while (true) {
-              if (!inThink) {
-                const startIdx = buf.indexOf("<think>");
-                if (startIdx === -1) {
-                  visible += buf;
-                  buf = "";
-                  break;
+          if (delta.content) {
+            if (isThinkingModel) {
+              let text = delta.content;
+              thinkBuffer += text;
+              let visible = "";
+              let buf = thinkBuffer;
+              while (true) {
+                if (!inThink) {
+                  const startIdx = buf.indexOf("<think>");
+                  if (startIdx === -1) { visible += buf; buf = ""; break; }
+                  visible += buf.slice(0, startIdx);
+                  buf = buf.slice(startIdx + 7);
+                  inThink = true;
+                } else {
+                  const endIdx = buf.indexOf("</think>");
+                  if (endIdx === -1) { buf = ""; break; }
+                  buf = buf.slice(endIdx + 8);
+                  inThink = false;
                 }
-                visible += buf.slice(0, startIdx);
-                buf = buf.slice(startIdx + 7);
-                inThink = true;
-              } else {
-                const endIdx = buf.indexOf("</think>");
-                if (endIdx === -1) {
-                  // Still inside think block, consume
-                  buf = "";
-                  break;
-                }
-                buf = buf.slice(endIdx + 8);
-                inThink = false;
+              }
+              thinkBuffer = buf;
+              if (visible) {
+                iterText += visible;
+                fullContent += visible;
+                sendEvent("chunk", { delta: visible, msgId: aiMsgId });
+              }
+            } else {
+              iterText += delta.content;
+              fullContent += delta.content;
+              sendEvent("chunk", { delta: delta.content, msgId: aiMsgId });
+            }
+          }
+
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              if (tc.index !== undefined) {
+                if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", name: "", arguments: "" };
+                if (tc.id) toolCalls[tc.index].id = tc.id;
+                if (tc.function?.name) toolCalls[tc.index].name = tc.function.name;
+                if (tc.function?.arguments) toolCalls[tc.index].arguments += tc.function.arguments;
               }
             }
-            thinkBuffer = buf;
+          }
 
-            if (visible) {
-              iterText += visible;
-              fullContent += visible;
-              sendEvent("chunk", { delta: visible, msgId: aiMsgId });
-            }
-          } else {
-            iterText += delta.content;
-            fullContent += delta.content;
-            sendEvent("chunk", { delta: delta.content, msgId: aiMsgId });
+          if (choice.finish_reason) {
+            finishReason = choice.finish_reason;
           }
         }
-
-        if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            if (tc.index !== undefined) {
-              if (!toolCalls[tc.index]) toolCalls[tc.index] = { id: "", name: "", arguments: "" };
-              if (tc.id) toolCalls[tc.index].id = tc.id;
-              if (tc.function?.name) toolCalls[tc.index].name = tc.function.name;
-              if (tc.function?.arguments) toolCalls[tc.index].arguments += tc.function.arguments;
-            }
-          }
+      } catch (streamErr: any) {
+        // Stream error — save what we have and exit gracefully
+        if (fullContent) {
+          sendEvent("notify", { text: "Stream interrupted — saving progress..." });
         }
-
-        if (choice.finish_reason === "stop" || choice.finish_reason === "end_turn") {
-          continueLoop = false;
-        }
+        continueLoop = false;
+        break;
       }
 
-      // Push assistant turn — use clean content without think tokens for history
+      // Push assistant turn
       messages.push({
         role: "assistant",
         content: iterText || null,
@@ -803,7 +785,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
 
         for (const tc of toolCalls) {
           if (!tc.name) continue;
-          // Skip internal tools from tracking
+
           if (tc.name !== "message_notify" && tc.name !== "task_done") {
             toolsUsed.push(tc.name);
           }
@@ -827,15 +809,33 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
             content: result.length > 8000 ? result.slice(0, 8000) + "\n...[truncated]" : result,
           });
 
-          // If task_done called, break the loop
           if (tc.name === "task_done") {
+            taskDoneCalled = true;
             continueLoop = false;
             break;
           }
         }
       } else {
-        continueLoop = false;
+        // No tool calls — check finish reason
+        if (finishReason === "stop" || finishReason === "end_turn" || finishReason === "length") {
+          continueLoop = false;
+        } else if (!finishReason) {
+          continueLoop = false;
+        }
       }
+
+      // Safety: if we're near the iteration limit and task_done not called, prompt to finish
+      if (iterations >= MAX_ITERATIONS - 3 && !taskDoneCalled && continueLoop) {
+        messages.push({
+          role: "user",
+          content: "You are close to the iteration limit. Please call task_done NOW with a summary of what was accomplished so far.",
+        });
+      }
+    }
+
+    // If loop ended without task_done, add a final completion notice
+    if (!taskDoneCalled && fullContent) {
+      sendEvent("notify", { text: "Task complete." });
     }
 
     // Save final AI message
@@ -851,7 +851,6 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     insertRecord("messages", aiMsg);
     updateRecord<any>("projects", req.params.projectId, { updatedAt: new Date().toISOString() });
 
-    // Deduct credit
     if (user) {
       updateRecord<User>("users", userId, { creditsUsed: (user.creditsUsed ?? 0) + 1 });
     }

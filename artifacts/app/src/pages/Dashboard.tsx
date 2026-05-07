@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -19,30 +19,56 @@ const EXAMPLES = [
   "Build a REST API with TypeScript and Express",
   "Make a CLI tool for file management",
   "Create a Telegram bot for task tracking",
+  "Build a real-time chat app with WebSockets",
 ];
 
 export function Dashboard() {
   const [description, setDescription] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [generatedName, setGeneratedName] = useState<string | null>(null);
+  const [isGeneratingName, setIsGeneratingName] = useState(false);
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const nameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: user } = useGetMe({ query: { queryKey: getGetMeQueryKey() } });
   const { data: projects = [] } = useListProjects({ query: { queryKey: getListProjectsQueryKey() } });
   const createProject = useCreateProject();
   const generateName = useGenerateProjectName();
 
+  // Auto-generate name from description (debounced)
+  useEffect(() => {
+    if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
+    if (description.trim().length < 10) {
+      setGeneratedName(null);
+      return;
+    }
+    setIsGeneratingName(true);
+    nameTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await generateName.mutateAsync({ data: { description: description.trim() } });
+        setGeneratedName((result as any).name ?? null);
+      } catch {
+        setGeneratedName(null);
+      } finally {
+        setIsGeneratingName(false);
+      }
+    }, 800);
+    return () => {
+      if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
+    };
+  }, [description]);
+
   async function handleSubmit() {
     const desc = description.trim();
     if (!desc) return;
     setDescription("");
+    setGeneratedName(null);
 
     const projectRes = await createProject.mutateAsync({
       data: { description: desc },
     });
-
-    // Generate better name in background
-    generateName.mutate({ data: { description: desc } });
 
     queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
     setLocation(`/chat/${projectRes.id}`);
@@ -52,6 +78,14 @@ export function Dashboard() {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSubmit();
+    }
+  }
+
+  function handleTextareaChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setDescription(e.target.value);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 160) + "px";
     }
   }
 
@@ -65,7 +99,6 @@ export function Dashboard() {
 
   return (
     <div className="flex h-[100dvh] bg-background overflow-hidden">
-      {/* Sidebar overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
       )}
@@ -73,7 +106,6 @@ export function Dashboard() {
         <Sidebar currentProjectId={null} onClose={() => setSidebarOpen(false)} />
       </div>
 
-      {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0">
@@ -112,21 +144,41 @@ export function Dashboard() {
               <h1 className="text-3xl font-bold text-foreground mb-2">
                 {greeting}, {user?.name?.split(" ")[0] ?? "there"}
               </h1>
-              <p className="text-muted-foreground">What are you building today?</p>
+              <p className="text-muted-foreground">What are we building today?</p>
             </div>
 
             {/* Input */}
-            <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden mb-4">
+            <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden mb-4 focus-within:border-border/60 transition-all">
               <textarea
+                ref={textareaRef}
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={handleTextareaChange}
                 onKeyDown={handleKeyDown}
                 placeholder="Describe your project... e.g. 'Build a Discord bot with TypeScript'"
-                rows={4}
+                rows={3}
                 className="w-full px-5 py-4 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground"
               />
+
+              {/* Generated name preview */}
+              {(generatedName || isGeneratingName) && description.trim().length >= 10 && (
+                <div className="px-5 pb-3 flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Project name:</span>
+                  {isGeneratingName ? (
+                    <div className="flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </div>
+                  ) : (
+                    <span className="text-xs font-medium text-primary bg-primary/8 px-2.5 py-1 rounded-full border border-primary/15">
+                      {generatedName}
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center justify-between px-4 py-3 border-t border-border/50">
-                <span className="text-xs text-muted-foreground">Cmd+Enter to send</span>
+                <span className="text-xs text-muted-foreground">⌘+Enter to create</span>
                 <button
                   onClick={handleSubmit}
                   disabled={!description.trim() || isPending}
@@ -171,7 +223,7 @@ export function Dashboard() {
                   Recent Projects
                 </h2>
                 <div className="space-y-2">
-                  {projects.slice(0, 6).map((p) => (
+                  {projects.slice(0, 8).map((p: any) => (
                     <div
                       key={p.id}
                       onClick={() => setLocation(`/chat/${p.id}`)}
@@ -180,7 +232,7 @@ export function Dashboard() {
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                            <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
                           </svg>
                         </div>
                         <div className="min-w-0">
@@ -190,7 +242,7 @@ export function Dashboard() {
                       </div>
                       <div className="flex items-center gap-3 shrink-0 ml-3">
                         <span className="text-xs text-muted-foreground">{formatRelativeTime(p.updatedAt)}</span>
-                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full hidden sm:block">
                           {p.messageCount} msgs
                         </span>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-0 group-hover:opacity-60 transition-opacity">

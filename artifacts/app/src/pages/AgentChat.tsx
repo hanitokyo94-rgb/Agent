@@ -38,7 +38,6 @@ interface ToolEvent {
   args: Record<string, any>;
   status: "running" | "done";
   result?: string;
-  notify?: string;
 }
 
 interface FileOp {
@@ -49,23 +48,30 @@ interface FileOp {
   content?: string;
 }
 
+interface SecretRequest {
+  key: string;
+  description: string;
+  msgId: string;
+}
+
 const TOOL_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
-  file_write:           { label: "Writing",      icon: "✏️",  color: "blue" },
-  file_read:            { label: "Reading",       icon: "📖", color: "slate" },
-  file_str_replace:     { label: "Editing",       icon: "🔧", color: "amber" },
-  file_find_by_name:    { label: "Finding",       icon: "🔍", color: "slate" },
-  file_find_in_content: { label: "Searching",     icon: "🔎", color: "slate" },
-  file_list:            { label: "Listing",       icon: "📂", color: "slate" },
-  file_delete:          { label: "Deleting",      icon: "🗑️", color: "red" },
-  shell_exec:           { label: "Running",       icon: "⚡", color: "violet" },
-  install_packages:     { label: "Installing",    icon: "📦", color: "orange" },
-  fetch_url:            { label: "Fetching",      icon: "🌐", color: "cyan" },
-  web_search:           { label: "Searching web", icon: "🔍", color: "cyan" },
-  set_secret:           { label: "Storing secret",icon: "🔐", color: "yellow" },
-  get_secrets:          { label: "Secrets",       icon: "🔑", color: "yellow" },
-  deploy_to_vercel:     { label: "Deploying",     icon: "🚀", color: "emerald" },
-  message_notify:       { label: "Notify",        icon: "💬", color: "blue" },
-  task_done:            { label: "Done",           icon: "✅", color: "emerald" },
+  file_write:           { label: "Writing",       icon: "✏️",  color: "blue" },
+  file_read:            { label: "Reading",        icon: "📖", color: "slate" },
+  file_str_replace:     { label: "Editing",        icon: "🔧", color: "amber" },
+  file_find_by_name:    { label: "Finding files",  icon: "🔍", color: "slate" },
+  file_find_in_content: { label: "Searching",      icon: "🔎", color: "slate" },
+  file_list:            { label: "Listing files",  icon: "📂", color: "slate" },
+  file_delete:          { label: "Deleting",       icon: "🗑️", color: "red" },
+  shell_exec:           { label: "Running",        icon: "⚡", color: "violet" },
+  install_packages:     { label: "Installing",     icon: "📦", color: "orange" },
+  fetch_url:            { label: "Fetching",       icon: "🌐", color: "cyan" },
+  web_search:           { label: "Searching web",  icon: "🔍", color: "cyan" },
+  set_secret:           { label: "Storing secret", icon: "🔐", color: "yellow" },
+  get_secrets:          { label: "Reading secrets",icon: "🔑", color: "yellow" },
+  request_secret:       { label: "Needs key",      icon: "🔑", color: "orange" },
+  deploy_to_vercel:     { label: "Deploying",      icon: "🚀", color: "emerald" },
+  message_notify:       { label: "Notify",         icon: "💬", color: "blue" },
+  task_done:            { label: "Complete",        icon: "✅", color: "emerald" },
 };
 
 const EXAMPLES = [
@@ -75,8 +81,6 @@ const EXAMPLES = [
   "Make a web scraper for product prices",
   "Create a CLI tool with commander.js",
   "Explain how JWT authentication works",
-  "Build a Discord bot with slash commands",
-  "Create a Next.js landing page with animations",
 ];
 
 function getFileOp(tool: ToolEvent): FileOp | null {
@@ -98,8 +102,8 @@ function getFileOp(tool: ToolEvent): FileOp | null {
   return null;
 }
 
-function shortFilename(path: string): string {
-  return path.split("/").pop() ?? path;
+function shortFilename(filePath: string): string {
+  return filePath.split("/").pop() ?? filePath;
 }
 
 function fileTypeIcon(name: string): string {
@@ -116,6 +120,13 @@ function fileTypeIcon(name: string): string {
   return "📄";
 }
 
+function extractUrl(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s]+/);
+  return match ? match[0] : null;
+}
+
+const PENDING_KEY = (id: string) => `agent-pending-${id}`;
+
 export function AgentChat() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
@@ -130,14 +141,17 @@ export function AgentChat() {
   const [showFileModal, setShowFileModal] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
   const [showMyFiles, setShowMyFiles] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [deployUrl, setDeployUrl] = useState<string | null>(null);
   const [deployBanner, setDeployBanner] = useState<string | null>(null);
   const [codeViewFile, setCodeViewFile] = useState<{ path: string; content: string } | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "streaming" | "error">("idle");
+  const [secretRequests, setSecretRequests] = useState<SecretRequest[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
   const { data: project } = useGetProject(projectId, {
@@ -157,7 +171,7 @@ export function AgentChat() {
     }
   }, [streamingMessages, projectId]);
 
-  // Load from localStorage first (instant), then sync server
+  // Load messages from server or localStorage
   useEffect(() => {
     if (!isStreaming) {
       if (savedMessages.length > 0) {
@@ -181,12 +195,44 @@ export function AgentChat() {
     }
   }, [savedMessages, isStreaming, projectId]);
 
+  // Background task persistence: resume if pending
+  useEffect(() => {
+    const pending = localStorage.getItem(PENDING_KEY(projectId));
+    if (pending && !isStreaming) {
+      try {
+        const { content, timestamp } = JSON.parse(pending);
+        const age = Date.now() - timestamp;
+        if (age < 1000 * 60 * 10) { // within 10 minutes
+          localStorage.removeItem(PENDING_KEY(projectId));
+          setTimeout(() => {
+            setInput(content);
+          }, 500);
+        } else {
+          localStorage.removeItem(PENDING_KEY(projectId));
+        }
+      } catch {
+        localStorage.removeItem(PENDING_KEY(projectId));
+      }
+    }
+  }, [projectId]);
+
   useEffect(() => { loadDeployInfo(); }, [projectId]);
   useEffect(() => { loadFiles(); }, [projectId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [streamingMessages, toolEvents]);
+  }, [streamingMessages, toolEvents, notifyBanners]);
+
+  // Close menu on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    }
+    if (showMenu) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showMenu]);
 
   async function loadFiles() {
     const token = localStorage.getItem("token");
@@ -211,6 +257,7 @@ export function AgentChat() {
   async function manualDeploy() {
     const token = localStorage.getItem("token");
     setDeployBanner("deploying");
+    setShowMenu(false);
     try {
       const res = await fetch(`/api/projects/${projectId}/deploy`, {
         method: "POST",
@@ -225,18 +272,35 @@ export function AgentChat() {
     } catch { setDeployBanner(null); }
   }
 
+  async function saveSecretValue(req: SecretRequest, value: string) {
+    const token = localStorage.getItem("token");
+    try {
+      await fetch(`/api/projects/${projectId}/secrets`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ secrets: { [req.key]: value } }),
+      });
+    } catch {}
+    setSecretRequests((prev) => prev.filter((r) => r.key !== req.key || r.msgId !== req.msgId));
+  }
+
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
     e.target.style.height = "auto";
     e.target.style.height = Math.min(e.target.scrollHeight, 220) + "px";
   }
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim();
+  const sendMessage = useCallback(async (overrideContent?: string) => {
+    const text = (overrideContent ?? input).trim();
     if ((!text && pendingAttachments.length === 0) || isStreaming) return;
-    setInput("");
-    setPendingAttachments([]);
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (!overrideContent) {
+      setInput("");
+      setPendingAttachments([]);
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+    }
+
+    // Save pending to localStorage for background persistence
+    localStorage.setItem(PENDING_KEY(projectId), JSON.stringify({ content: text, timestamp: Date.now() }));
 
     const userMsg: StreamMessage = {
       id: `user-${Date.now()}`, role: "user", content: text,
@@ -307,11 +371,14 @@ export function AgentChat() {
                   break;
                 case "task_done":
                   if (data.summary) {
-                    aiContent = aiContent ? aiContent + "\n\n" + data.summary : data.summary;
+                    aiContent = aiContent ? aiContent + "\n\n---\n\n" + data.summary : data.summary;
                     setStreamingMessages((prev) =>
                       prev.map((m) => m.id === aiMsgId ? { ...m, content: aiContent, streaming: true } : m)
                     );
                   }
+                  break;
+                case "request_secret":
+                  setSecretRequests((prev) => [...prev, { key: data.key, description: data.description, msgId: aiMsgId }]);
                   break;
                 case "tool_call":
                   if (data.name !== "message_notify" && data.name !== "task_done") {
@@ -354,6 +421,7 @@ export function AgentChat() {
           }
         }
       }
+      localStorage.removeItem(PENDING_KEY(projectId));
       setConnectionStatus("idle");
     } catch (err: any) {
       if (err.name !== "AbortError") {
@@ -371,6 +439,7 @@ export function AgentChat() {
           prev.map((m) => m.id === aiMsgId ? { ...m, streaming: false } : m)
         );
       }
+      localStorage.removeItem(PENDING_KEY(projectId));
     } finally {
       setIsStreaming(false);
       loadFiles();
@@ -392,11 +461,104 @@ export function AgentChat() {
     setShowMyFiles(false);
   }
 
-  function openCodeView(path: string, content: string) {
-    setCodeViewFile({ path, content });
-  }
-
   const fileCount = files.filter((f) => !f.isDir).length;
+
+  const menuItems = [
+    {
+      label: "My Files",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+        </svg>
+      ),
+      onClick: () => { setShowFileModal(true); setShowMenu(false); },
+      disabled: fileCount === 0,
+    },
+    {
+      label: "Run Project",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+      ),
+      onClick: () => {
+        setInput("Run the project and show me the output");
+        setShowMenu(false);
+        setTimeout(() => sendMessage("Run the project and show me the output"), 100);
+      },
+    },
+    {
+      label: "Shell",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+        </svg>
+      ),
+      onClick: () => {
+        setInput("Open a shell and show the project structure");
+        setShowMenu(false);
+      },
+    },
+    {
+      label: "Deploy",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+      ),
+      onClick: manualDeploy,
+    },
+    { separator: true },
+    {
+      label: "Databobo",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+      ),
+      onClick: () => {
+        setInput("Set up Databobo database integration for this project");
+        setShowMenu(false);
+      },
+      badge: "100MB",
+    },
+    {
+      label: "Authbobo",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      ),
+      onClick: () => {
+        setInput("Set up Authbobo authentication for this project");
+        setShowMenu(false);
+      },
+    },
+    {
+      label: "Git",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+          <path d="M6 9v6M15.4 6.4L8.6 17.6"/>
+        </svg>
+      ),
+      onClick: () => {
+        setInput("Show git status and recent commits");
+        setShowMenu(false);
+      },
+    },
+    { separator: true },
+    {
+      label: "API Keys",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+        </svg>
+      ),
+      onClick: () => { setShowSecrets(true); setShowMenu(false); },
+    },
+  ];
 
   return (
     <div className="flex h-[100dvh] bg-background overflow-hidden">
@@ -424,7 +586,7 @@ export function AgentChat() {
             </button>
             <p className="text-sm font-medium truncate flex-1 min-w-0 text-foreground/90">{project?.name ?? "..."}</p>
 
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
               {connectionStatus === "streaming" && (
                 <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/8 border border-primary/15">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
@@ -434,22 +596,8 @@ export function AgentChat() {
               {connectionStatus === "error" && (
                 <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-md bg-destructive/8 border border-destructive/20 text-destructive text-xs">
                   <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
-                  Disconnected
+                  Error
                 </div>
-              )}
-
-              {fileCount > 0 && (
-                <button
-                  onClick={manualDeploy}
-                  disabled={deployBanner === "deploying"}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-violet-500/10 text-violet-600 hover:bg-violet-500/20 transition-colors font-medium disabled:opacity-50"
-                >
-                  {deployBanner === "deploying"
-                    ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                    : <span>🚀</span>
-                  }
-                  {deployUrl ? "Redeploy" : "Deploy"}
-                </button>
               )}
 
               {deployUrl && (
@@ -457,9 +605,6 @@ export function AgentChat() {
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors font-medium">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                   <span className="hidden sm:inline">Live</span>
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
-                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                  </svg>
                 </a>
               )}
 
@@ -473,12 +618,49 @@ export function AgentChat() {
                 </button>
               )}
 
-              <button onClick={() => setShowSecrets(true)}
-                className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground" title="Secrets">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-                </svg>
-              </button>
+              {/* 3-dot menu */}
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setShowMenu((v) => !v)}
+                  className={cn(
+                    "p-1.5 rounded-lg transition-colors text-muted-foreground hover:text-foreground",
+                    showMenu ? "bg-muted text-foreground" : "hover:bg-muted"
+                  )}
+                  title="More options"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/>
+                  </svg>
+                </button>
+
+                {showMenu && (
+                  <div className="absolute right-0 top-full mt-1.5 w-52 bg-popover border border-border rounded-xl shadow-lg z-50 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100">
+                    <div className="py-1">
+                      {menuItems.map((item, i) => {
+                        if ((item as any).separator) {
+                          return <div key={i} className="h-px bg-border mx-2 my-1" />;
+                        }
+                        return (
+                          <button
+                            key={i}
+                            onClick={(item as any).onClick}
+                            disabled={(item as any).disabled}
+                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <span className="text-muted-foreground shrink-0">{(item as any).icon}</span>
+                            <span className="flex-1 text-left">{(item as any).label}</span>
+                            {(item as any).badge && (
+                              <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">
+                                {(item as any).badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </header>
 
@@ -486,7 +668,7 @@ export function AgentChat() {
           {deployBanner && deployBanner !== "deploying" && (
             <div className="flex items-center justify-between gap-3 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-200 dark:border-emerald-800 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
-                <span>🚀</span>
+                <span className="text-base">🚀</span>
                 <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Deployed!</span>
                 <a href={deployBanner} target="_blank" rel="noopener noreferrer"
                   className="text-sm text-emerald-600 underline underline-offset-2 hover:text-emerald-500 truncate">{deployBanner}</a>
@@ -499,9 +681,19 @@ export function AgentChat() {
             </div>
           )}
 
+          {/* Secret request banners */}
+          {secretRequests.map((req) => (
+            <SecretRequestBanner
+              key={`${req.msgId}-${req.key}`}
+              request={req}
+              onSubmit={(val) => saveSecretValue(req, val)}
+              onDismiss={() => setSecretRequests((prev) => prev.filter((r) => r.key !== req.key || r.msgId !== req.msgId))}
+            />
+          ))}
+
           {/* Messages */}
           <div className="flex-1 overflow-y-auto">
-            <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+            <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
               {isLoading && streamingMessages.length === 0 && (
                 <div className="flex justify-center py-12">
                   <svg className="animate-spin w-5 h-5 text-muted-foreground" viewBox="0 0 24 24" fill="none">
@@ -521,7 +713,7 @@ export function AgentChat() {
                   msg={msg}
                   tools={toolEvents[msg.id] ?? []}
                   notifies={notifyBanners[msg.id] ?? []}
-                  onOpenCode={openCodeView}
+                  onOpenCode={(p, c) => setCodeViewFile({ path: p, content: c })}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -531,7 +723,6 @@ export function AgentChat() {
           {/* Input area */}
           <div className="border-t border-border/60 px-4 py-3 shrink-0 bg-background">
             <div className="max-w-2xl mx-auto space-y-2">
-              {/* Pending attachments */}
               {pendingAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {pendingAttachments.map((a, i) => (
@@ -562,7 +753,6 @@ export function AgentChat() {
                 />
                 <div className="flex items-center justify-between px-3 pb-2.5">
                   <div className="flex items-center gap-1">
-                    {/* Attach button */}
                     <button
                       onClick={() => setShowMyFiles(true)}
                       disabled={isStreaming}
@@ -574,14 +764,18 @@ export function AgentChat() {
                       </svg>
                     </button>
                     {isStreaming && (
-                      <span className="text-xs text-primary/70 flex items-center gap-1.5 ml-1">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                        Thinking...
-                      </span>
+                      <div className="flex items-center gap-1.5 ml-1">
+                        <div className="flex gap-0.5">
+                          <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <span className="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </div>
+                        <span className="text-xs text-primary/70">Working...</span>
+                      </div>
                     )}
                   </div>
                   <button
-                    onClick={isStreaming ? () => abortRef.current?.abort() : sendMessage}
+                    onClick={isStreaming ? () => abortRef.current?.abort() : () => sendMessage()}
                     disabled={!isStreaming && !input.trim() && pendingAttachments.length === 0}
                     className={cn(
                       "flex items-center justify-center w-8 h-8 rounded-xl text-sm font-medium transition-all",
@@ -602,7 +796,7 @@ export function AgentChat() {
                   </button>
                 </div>
               </div>
-              <p className="text-center text-xs text-muted-foreground/50">⌘+Enter to send</p>
+              <p className="text-center text-xs text-muted-foreground/40">AI can make mistakes. ⌘+Enter to send</p>
             </div>
           </div>
         </div>
@@ -639,11 +833,61 @@ export function AgentChat() {
       {showMyFiles && (
         <MyFiles projectId={projectId} onAttach={handleFileAttach} onClose={() => setShowMyFiles(false)} />
       )}
-
-      {/* Code viewer modal */}
       {codeViewFile && (
         <CodeViewModal file={codeViewFile} onClose={() => setCodeViewFile(null)} />
       )}
+    </div>
+  );
+}
+
+// ── Secret request banner ────────────────────────────────────────────
+function SecretRequestBanner({
+  request, onSubmit, onDismiss
+}: {
+  request: SecretRequest;
+  onSubmit: (value: string) => void;
+  onDismiss: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  function handleSubmit() {
+    if (!value.trim()) return;
+    setSubmitted(true);
+    onSubmit(value.trim());
+  }
+
+  return (
+    <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700 shrink-0 animate-in slide-in-from-top-2">
+      <span className="text-lg shrink-0">🔑</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{request.key} required</p>
+        <p className="text-xs text-amber-700 dark:text-amber-300 mb-2">{request.description}</p>
+        {!submitted ? (
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              placeholder={`Enter ${request.key}...`}
+              className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-amber-300 bg-white dark:bg-amber-900/30 dark:border-amber-600 outline-none focus:border-amber-500"
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={!value.trim()}
+              className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors disabled:opacity-40"
+            >
+              Save
+            </button>
+            <button onClick={onDismiss} className="text-xs px-3 py-1.5 rounded-lg bg-transparent border border-amber-300 hover:bg-amber-100 transition-colors text-amber-700">
+              Skip
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-emerald-600 font-medium">✓ Saved securely</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -652,9 +896,11 @@ export function AgentChat() {
 function EmptyState({ projectName, onExample }: { projectName?: string; onExample: (v: string) => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
-      <h2 className="text-2xl font-semibold mb-2 tracking-tight">{projectName ? `What should I build?` : "What can I help with?"}</h2>
+      <h2 className="text-2xl font-semibold mb-2 tracking-tight">
+        {projectName ? `Working on "${projectName}"` : "What can I help with?"}
+      </h2>
       <p className="text-sm text-muted-foreground mb-8 max-w-sm">
-        {projectName ? `Working on "${projectName}". Describe what you need.` : "Ask anything — code, builds, deployments, or answers."}
+        {projectName ? "Describe what you need — I'll build it step by step." : "Ask anything — code, builds, deployments, or answers."}
       </p>
       <div className="flex flex-wrap gap-2 justify-center max-w-lg">
         {EXAMPLES.map((ex) => (
@@ -683,7 +929,6 @@ function MessageBubble({
     return (
       <div className="flex justify-end">
         <div className="max-w-[80%] space-y-2">
-          {/* Attachments */}
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 justify-end">
               {msg.attachments.map((a, i) => (
@@ -694,7 +939,7 @@ function MessageBubble({
               ))}
             </div>
           )}
-          <div className="bg-muted/60 border border-border/50 px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed text-foreground">
+          <div className="bg-muted/60 border border-border/50 px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed text-foreground whitespace-pre-wrap">
             {msg.content}
           </div>
         </div>
@@ -703,10 +948,10 @@ function MessageBubble({
   }
 
   // Assistant message
-  const FILE_TOOL_NAMES = ["file_write","file_str_replace","file_delete","file_read"];
-  const visibleTools = tools.filter((t) => t.name !== "message_notify" && t.name !== "task_done");
+  const FILE_TOOL_NAMES = ["file_write", "file_str_replace", "file_delete", "file_read"];
+  const visibleTools = tools.filter((t) => t.name !== "message_notify" && t.name !== "task_done" && t.name !== "request_secret");
   const fileTools = visibleTools.filter((t) => FILE_TOOL_NAMES.includes(t.name));
-  const fileOps: Array<FileOp & { isDone: boolean }> = fileTools.map((t) => {
+  const fileOps = fileTools.map((t) => {
     const op = getFileOp(t);
     return op ? { ...op, isDone: t.status === "done" } : null;
   }).filter(Boolean) as Array<FileOp & { isDone: boolean }>;
@@ -719,8 +964,8 @@ function MessageBubble({
     <div className="space-y-3">
       {/* Notifications */}
       {notifies.map((text, i) => (
-        <div key={i} className="flex items-start gap-2 text-sm text-blue-600 dark:text-blue-400">
-          <span className="text-base shrink-0 mt-0.5">💬</span>
+        <div key={i} className="flex items-start gap-2.5 py-1.5 px-3 rounded-xl bg-primary/5 border border-primary/10 text-sm text-foreground/80">
+          <span className="text-primary text-xs font-mono mt-0.5 shrink-0">›</span>
           <span className="leading-relaxed">{text}</span>
         </div>
       ))}
@@ -728,16 +973,18 @@ function MessageBubble({
       {/* Tool steps */}
       {visibleTools.length > 0 && (
         <div className="space-y-2">
-          {/* Running indicator */}
+          {/* Currently running */}
           {runningTools.length > 0 && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <svg className="animate-spin w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-              </svg>
-              <span className="font-medium">{TOOL_CONFIG[runningTools[0].name]?.label ?? runningTools[0].name}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+              <div className="flex gap-0.5 shrink-0">
+                <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: "120ms" }} />
+                <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: "240ms" }} />
+              </div>
+              <span>
+                {TOOL_CONFIG[runningTools[0].name]?.label ?? runningTools[0].name}
                 {runningTools[0].args.file ? ` ${shortFilename(runningTools[0].args.file)}` : ""}
-                {runningTools[0].args.command ? ` — ${String(runningTools[0].args.command).slice(0, 40)}` : ""}
+                {runningTools[0].args.command ? ` — ${String(runningTools[0].args.command).slice(0, 50)}` : ""}
               </span>
             </div>
           )}
@@ -750,34 +997,28 @@ function MessageBubble({
                   key={`${op.file}-${i}`}
                   onClick={() => op.content && op.isDone ? onOpenCode(op.file, op.content) : undefined}
                   className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition-colors border",
+                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono border transition-colors",
                     op.isDone
                       ? "bg-muted/60 border-border/50 hover:bg-muted cursor-pointer"
                       : "bg-muted/30 border-border/30 opacity-60 cursor-default",
-                    op.type === "delete" && "opacity-50"
                   )}
                 >
                   <span className="text-[10px] opacity-60">{fileTypeIcon(op.file)}</span>
                   <span className="text-foreground/80 max-w-[140px] truncate">{shortFilename(op.file)}</span>
                   {op.type === "delete" ? (
-                    <span className="text-destructive font-medium">deleted</span>
+                    <span className="text-destructive font-medium text-[10px]">del</span>
                   ) : (
                     <>
                       {op.added > 0 && <span className="text-emerald-500 font-medium">+{op.added}</span>}
                       {op.removed > 0 && <span className="text-destructive font-medium">-{op.removed}</span>}
                     </>
                   )}
-                  {op.content && op.isDone && (
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                    </svg>
-                  )}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Non-file tools (shell, install, deploy, etc.) */}
+          {/* Non-file tools */}
           {nonFileTools.length > 0 && (
             <button
               onClick={() => setStepsOpen((v) => !v)}
@@ -788,7 +1029,7 @@ function MessageBubble({
                   <span key={i} className="text-sm">{TOOL_CONFIG[name]?.icon ?? "🔧"}</span>
                 ))}
               </div>
-              <span>
+              <span className="font-mono text-[11px]">
                 {nonFileTools.filter((t) => t.status === "running").length > 0
                   ? `${nonFileTools.filter((t) => t.status === "running").length} running...`
                   : `${nonFileTools.length} step${nonFileTools.length !== 1 ? "s" : ""}`}
@@ -801,18 +1042,21 @@ function MessageBubble({
           )}
 
           {stepsOpen && nonFileTools.length > 0 && (
-            <div className="space-y-1 pl-2 border-l border-border/40">
+            <div className="space-y-1 pl-3 border-l-2 border-border/40 ml-1">
               {nonFileTools.map((tool, i) => {
                 const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
                 return (
-                  <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground py-0.5">
                     {tool.status === "running"
-                      ? <svg className="animate-spin w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                      : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-500 shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                      ? <svg className="animate-spin w-3 h-3 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                      : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-500 shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
                     }
-                    <span>{cfg.icon} {cfg.label}</span>
-                    {tool.args.command && <code className="opacity-60 truncate max-w-[180px]">{String(tool.args.command).slice(0, 50)}</code>}
-                    {tool.args.url && <code className="opacity-60 truncate max-w-[180px]">{tool.args.url}</code>}
+                    <div className="min-w-0">
+                      <span className="font-mono">{cfg.icon} {cfg.label}</span>
+                      {tool.args.command && <code className="block opacity-50 truncate max-w-[220px] mt-0.5">{String(tool.args.command).slice(0, 80)}</code>}
+                      {tool.args.url && <code className="block opacity-50 truncate max-w-[220px] mt-0.5">{tool.args.url}</code>}
+                      {tool.args.query && <code className="block opacity-50 truncate max-w-[220px] mt-0.5">{tool.args.query}</code>}
+                    </div>
                   </div>
                 );
               })}
@@ -835,7 +1079,7 @@ function MessageBubble({
         </div>
       )}
 
-      {/* Message content — no background, no avatar */}
+      {/* Message content */}
       {(msg.content || (msg.streaming && !msg.content)) && (
         <div className="text-sm leading-relaxed text-foreground">
           {msg.content ? (
@@ -860,8 +1104,8 @@ function MessageBubble({
 
 // ── Code view modal ──────────────────────────────────────────────────
 function CodeViewModal({ file, onClose }: { file: { path: string; content: string }; onClose: () => void }) {
-  function getLang(path: string): string {
-    const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  function getLang(p: string): string {
+    const ext = p.split(".").pop()?.toLowerCase() ?? "";
     const map: Record<string, string> = {
       ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
       json: "json", html: "html", css: "css", md: "markdown", sh: "bash", py: "python",
@@ -904,9 +1148,4 @@ function CodeViewModal({ file, onClose }: { file: { path: string; content: strin
       </div>
     </div>
   );
-}
-
-function extractUrl(text: string): string | null {
-  const match = text.match(/https?:\/\/[^\s]+/);
-  return match ? match[0] : null;
 }
