@@ -11,6 +11,7 @@ import deployRouter from "./deploy.js";
 import githubImportRouter from "./github-import.js";
 import boboAuthRouter from "./bobo-auth.js";
 import boboDataRouter from "./bobo-data.js";
+import templatesRouter from "./templates.js";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(deployRouter);
 router.use(githubImportRouter);
 router.use(boboAuthRouter);
 router.use(boboDataRouter);
+router.use(templatesRouter);
 
 export default router;

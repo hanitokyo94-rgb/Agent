@@ -11,6 +11,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { AgentChat } from "./pages/AgentChat";
 import { Settings } from "./pages/Settings";
 import { Admin } from "./pages/Admin";
+import { Templates } from "./pages/Templates";
 import NotFound from "@/pages/not-found";
 
 // Set token getter from localStorage
@@ -67,6 +68,7 @@ function Router() {
       <Route path="/chat/:projectId" component={() => <ProtectedRoute component={AgentChat} />} />
       <Route path="/settings" component={() => <ProtectedRoute component={Settings} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={Admin} />} />
+      <Route path="/templates" component={() => <ProtectedRoute component={Templates} />} />
       <Route component={NotFound} />
     </Switch>
   );

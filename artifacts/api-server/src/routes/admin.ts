@@ -1,10 +1,12 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
+import OpenAI from "openai";
 import {
   readCollection,
   updateRecord,
   findWhere,
+  findById as _findById,
   writeCollection,
 } from "../lib/storage.js";
 import type { User } from "./auth.js";
@@ -153,6 +155,83 @@ router.get("/admin/users/:userId/projects", adminMiddleware, (req, res) => {
     messageCount: messages.filter((m) => m.projectId === p.id).length,
   }));
   res.json(result);
+});
+
+// ── Template management (admin) ───────────────────────────────────────
+
+router.post("/admin/projects/:projectId/template", adminMiddleware, async (req, res) => {
+  const { projectId } = req.params;
+  const project = _findById<any>("projects", projectId);
+  if (!project) { res.status(404).json({ error: "Project not found" }); return; }
+
+  const { name, description, category, tags, agentPower } = req.body as {
+    name?: string; description?: string; category?: string; tags?: string[]; agentPower?: string;
+  };
+
+  const updated = updateRecord<any>("projects", projectId, {
+    isTemplate: true,
+    templateMeta: {
+      ...(project.templateMeta ?? {}),
+      name: name ?? project.name,
+      description: description ?? project.description ?? "",
+      category: category ?? "General",
+      tags: tags ?? [],
+      agentPower: agentPower ?? "economy",
+      usageCount: project.templateMeta?.usageCount ?? 0,
+    },
+  });
+
+  res.json(updated);
+});
+
+router.delete("/admin/projects/:projectId/template", adminMiddleware, (req, res) => {
+  const { projectId } = req.params;
+  const project = _findById<any>("projects", projectId);
+  if (!project) { res.status(404).json({ error: "Project not found" }); return; }
+  const updated = updateRecord<any>("projects", projectId, { isTemplate: false, templateMeta: null });
+  res.json(updated);
+});
+
+router.post("/admin/projects/:projectId/template/generate", adminMiddleware, async (req, res) => {
+  const { projectId } = req.params;
+  const project = _findById<any>("projects", projectId);
+  if (!project) { res.status(404).json({ error: "Project not found" }); return; }
+
+  try {
+    const apiKey = process.env.AI_API_KEY ?? process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+    const baseURL = process.env.AI_BASE_URL ?? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+    if (!apiKey) { res.status(400).json({ error: "No AI API key configured" }); return; }
+
+    const client = new OpenAI({ apiKey, baseURL: baseURL || undefined });
+    const completion = await client.chat.completions.create({
+      model: process.env.AI_MODEL ?? "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are a product copywriter for an AI-powered coding platform. Generate a short, compelling template description.",
+        },
+        {
+          role: "user",
+          content: `Project name: "${project.name}"\nDescription: "${project.description ?? ""}"\n\nGenerate:\n1. A catchy template name (5-6 words max)\n2. A 1-sentence description of what this project template does (max 100 chars)\n3. A detailed agent prompt that describes what this template builds and should be used for (2-3 sentences)\n4. A category from: SaaS, E-commerce, Landing Page, Dashboard, API, Mobile, Game, Portfolio, Blog, Other\n5. 3-5 lowercase tags\n\nRespond in JSON: { "name": "...", "description": "...", "prompt": "...", "category": "...", "tags": ["..."] }`,
+        },
+      ],
+      max_tokens: 400,
+      response_format: { type: "json_object" },
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    const generated = JSON.parse(raw);
+
+    res.json({
+      name: generated.name ?? project.name,
+      description: generated.description ?? "",
+      prompt: generated.prompt ?? "",
+      category: generated.category ?? "General",
+      tags: generated.tags ?? [],
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message ?? "Generation failed" });
+  }
 });
 
 // ── Platform AI config ─────────────────────────────────────────────────

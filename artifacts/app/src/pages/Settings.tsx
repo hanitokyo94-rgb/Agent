@@ -18,6 +18,7 @@ const PLANS = [
     name: "Free",
     price: 0,
     credits: 20,
+    agentPower: { label: "Lite", color: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300", iterations: 10 },
     features: ["20 monthly credits", "Basic AI models", "JSON storage", "Community support"],
   },
   {
@@ -25,6 +26,7 @@ const PLANS = [
     name: "Build",
     price: 25,
     credits: 100,
+    agentPower: { label: "Economy", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", iterations: 25 },
     features: ["100 monthly credits", "Advanced AI models", "Priority responses", "Email support", "Credits never expire"],
     highlight: true,
   },
@@ -33,6 +35,7 @@ const PLANS = [
     name: "Scale",
     price: 79,
     credits: 500,
+    agentPower: { label: "Power", color: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", iterations: 50 },
     features: ["500 monthly credits", "All AI models", "Fastest responses", "Priority support", "Team features"],
   },
 ];
@@ -902,6 +905,9 @@ export function Settings() {
                               {isCurrent && (
                                 <span className="text-xs border border-primary text-primary px-2 py-0.5 rounded-full shrink-0">Current</span>
                               )}
+                              <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0", plan.agentPower.color)}>
+                                ⚡ Agent {plan.agentPower.label}
+                              </span>
                             </div>
                             <div className="flex items-baseline gap-1">
                               <span className="text-2xl font-bold">${price}</span>
@@ -920,7 +926,27 @@ export function Settings() {
                             </button>
                           )}
                         </div>
-                        <ul className="mt-4 space-y-2">
+                        {/* Agent Power bar */}
+                        <div className="mt-3 mb-1">
+                          <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1.5">
+                            <span className="font-medium">Agent Power</span>
+                            <span>{plan.agentPower.iterations} iterations / request</span>
+                          </div>
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={cn("h-full rounded-full transition-all", {
+                                "bg-slate-400": plan.agentPower.label === "Lite",
+                                "bg-blue-500": plan.agentPower.label === "Economy",
+                                "bg-violet-500": plan.agentPower.label === "Power",
+                              })}
+                              style={{ width: `${(plan.agentPower.iterations / 50) * 100}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[10px] text-muted-foreground/60 mt-1">
+                            <span>Lite</span><span>Economy</span><span>Power</span>
+                          </div>
+                        </div>
+                        <ul className="mt-3 space-y-2">
                           {plan.features.map((f) => (
                             <li key={f} className="flex items-center gap-2.5 text-sm text-muted-foreground">
                               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-primary shrink-0">
