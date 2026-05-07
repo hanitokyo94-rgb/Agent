@@ -292,6 +292,7 @@ export function AgentChat() {
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionCursorInfo, setMentionCursorInfo] = useState<{ start: number; end: number } | null>(null);
   const [expoSnacks, setExpoSnacks] = useState<Record<string, { url: string; qrUrl: string; snackId: string }>>({});
+  const [generatedImages, setGeneratedImages] = useState<Record<string, Array<{ url: string; prompt: string; filename: string }>>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
     try { return localStorage.getItem(`preview-url-${projectId}`) ?? null; } catch { return null; }
   });
@@ -830,6 +831,16 @@ export function AgentChat() {
                     [aiMsgId]: { url: data.url, qrUrl: data.qrUrl, snackId: data.snackId },
                   }));
                   break;
+                case "image_generated":
+                  setGeneratedImages((prev) => ({
+                    ...prev,
+                    [aiMsgId]: [...(prev[aiMsgId] ?? []), { url: data.url, prompt: data.prompt, filename: data.filename }],
+                  }));
+                  break;
+                case "git_pushed":
+                  setGithubPushResult({ url: data.url });
+                  setGithubPushStatus("done");
+                  break;
                 case "done":
                   if (data.role !== undefined) {
                     const finalMsgId = data.id ?? aiMsgId;
@@ -1318,6 +1329,7 @@ export function AgentChat() {
                   onCopy={(content, id) => copyMessage(content, id)}
                   copiedId={copiedMsgId}
                   expoSnack={expoSnacks[msg.id]}
+                  images={generatedImages[msg.id]}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -2297,8 +2309,49 @@ function ExpoSnackCard({ snack }: { snack: { url: string; qrUrl: string; snackId
 }
 
 // ── Message bubble ───────────────────────────────────────────────────
+function GeneratedImageCard({ image }: { image: { url: string; prompt: string; filename: string } }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="mt-3 border border-violet-200 dark:border-violet-800/60 rounded-2xl overflow-hidden bg-violet-50/30 dark:bg-violet-900/10">
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-violet-500/10 border-b border-violet-200 dark:border-violet-800/60">
+        <span className="text-base">🎨</span>
+        <span className="text-sm font-semibold text-violet-700 dark:text-violet-300">Generated Image</span>
+        <code className="ml-auto text-[10px] text-violet-600/70 dark:text-violet-400/60 font-mono truncate max-w-[180px]">{image.filename}</code>
+      </div>
+      <div className="p-3">
+        <img
+          src={image.url}
+          alt={image.prompt}
+          className={`w-full rounded-xl border border-violet-200 dark:border-violet-800/60 object-cover cursor-zoom-in transition-all ${expanded ? "max-h-none" : "max-h-64"}`}
+          onClick={() => setExpanded((e) => !e)}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
+        <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed line-clamp-2">{image.prompt}</p>
+        <div className="mt-2 flex items-center gap-2">
+          <a
+            href={image.url}
+            download={image.filename.split("/").pop()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-600 text-white hover:bg-violet-700 transition-colors"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Download
+          </a>
+          <button
+            onClick={() => setExpanded((e) => !e)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border bg-background hover:bg-muted transition-colors text-muted-foreground"
+          >
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
-  msg, tools, notifies, onOpenCode, onCopy, copiedId, expoSnack,
+  msg, tools, notifies, onOpenCode, onCopy, copiedId, expoSnack, images,
 }: {
   msg: StreamMessage;
   tools: ToolEvent[];
@@ -2307,6 +2360,7 @@ function MessageBubble({
   onCopy?: (content: string, id: string) => void;
   copiedId?: string | null;
   expoSnack?: { url: string; qrUrl: string; snackId: string };
+  images?: Array<{ url: string; prompt: string; filename: string }>;
 }) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
@@ -2514,6 +2568,13 @@ function MessageBubble({
 
       {/* ── Expo Snack QR card ── */}
       {expoSnack && <ExpoSnackCard snack={expoSnack} />}
+
+      {/* ── Generated images ── */}
+      {images && images.length > 0 && (
+        <div className="space-y-2">
+          {images.map((img, i) => <GeneratedImageCard key={i} image={img} />)}
+        </div>
+      )}
 
       {/* ── Skeleton activity while tool runs and no content yet ── */}
       {msg.streaming && !msg.content && runningTool && (

@@ -223,6 +223,23 @@ router.put("/projects/:projectId/secrets", (req, res) => {
   res.json({ success: true });
 });
 
+// GET /api/projects/:projectId/raw/:filepath
+// Serves any raw file from the project workspace (images, assets, etc.)
+router.get("/projects/:projectId/raw/:filepath", (req, res) => {
+  const wsDir = path.join(WORKSPACES_DIR, req.params.projectId);
+  const relPath = decodeURIComponent(req.params.filepath);
+  const filePath = path.resolve(wsDir, relPath);
+  if (!filePath.startsWith(path.resolve(wsDir))) {
+    res.status(403).send("Forbidden");
+    return;
+  }
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    res.status(404).send("Not found");
+    return;
+  }
+  res.sendFile(filePath);
+});
+
 // GET /api/projects/:projectId/preview  and  /api/projects/:projectId/preview/*
 // Serves the built static output of a user project, with SPA fallback.
 function getPreviewServeDir(projectId: string): string | null {

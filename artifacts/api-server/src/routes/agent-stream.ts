@@ -144,6 +144,38 @@ const MAX_BUILDERS_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "generate_image",
+      description: "Generate an AI image and save it to the project. Use for any visual asset: hero images, icons, backgrounds, logos, product photos. Returns file path to use in code.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "Detailed image description with style, mood, colors, composition." },
+          filename: { type: "string", description: "Filename e.g. 'hero.png'. Saved under images/ folder." },
+          size: { type: "string", description: "'1024x1024' | '1792x1024' | '1024x1792' | '864x1536'" },
+        },
+        required: ["prompt", "filename"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "git_push",
+      description: "Push the project to GitHub. Initializes git, commits all files, pushes. Requires GITHUB_TOKEN secret.",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "'username/repo-name'" },
+          message: { type: "string", description: "Commit message" },
+          branch: { type: "string", description: "Branch name (default: main)" },
+        },
+        required: ["repo"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "get_secrets",
       description: "List names of stored project secrets/env vars.",
       parameters: { type: "object", properties: {} },
@@ -414,6 +446,8 @@ All Bobo APIs at: ${platformUrl ?? "https://your-platform.repl.co"}/api/bobo/
 - NEVER give the user a localhost URL — use build_preview for live previews
 - ALWAYS run TypeScript check before declaring done
 - ALWAYS end with task_done — without it the task appears unfinished
+- USE generate_image proactively for any project that needs visuals — don't use placeholder images
+- USE git_push when user asks to push to GitHub — request GITHUB_TOKEN first if not stored
 - Your reputation costs $1M/month. Every output must be exceptional.
 </critical_rules>`;
 }
@@ -611,6 +645,38 @@ const AGENT_TOOLS = [
         type: "object",
         properties: { query: { type: "string", description: "Search query (3-5 keywords)" } },
         required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "generate_image",
+      description: "Generate an AI image using the platform image model and save it to the project workspace. Use for hero images, icons, illustrations, backgrounds, product mockups, avatars, any visual asset needed by the project. Returns the file path to embed in code.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "Detailed image description. Include style, lighting, colors, mood, composition. More detail = better result." },
+          filename: { type: "string", description: "Filename to save as, e.g. 'hero.png', 'avatar.png'. Saved under images/ folder automatically." },
+          size: { type: "string", description: "Dimensions: '1024x1024' (square), '1792x1024' (landscape widescreen), '1024x1792' (portrait), '864x1536' (mobile portrait). Default: 1024x1024" },
+        },
+        required: ["prompt", "filename"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "git_push",
+      description: "Push the project to a GitHub repository. Initializes git, stages all files, commits, and pushes to GitHub. Requires GITHUB_TOKEN stored as a secret.",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "GitHub repo in format 'username/repo-name'" },
+          message: { type: "string", description: "Commit message describing changes" },
+          branch: { type: "string", description: "Branch to push to (default: main)" },
+        },
+        required: ["repo"],
       },
     },
   },
@@ -923,6 +989,8 @@ project-name/
 - Chain shell commands: e.g. "npm install && npm run build && npm start"
 - After building: verify it works with shell_exec, then deploy
 - Use web_search to find latest docs, package versions, and best practices
+- Use generate_image to create hero images, icons, backgrounds, illustrations — any visual asset the project needs. Always embed generated images in the code using their saved path (images/filename.png).
+- Use git_push to push the project to GitHub when requested (requires GITHUB_TOKEN secret)
 - Add .env.example files showing required env vars
 - Write README.md with setup instructions
 - NO placeholders, NO TODO, NO mock data — real executable code only
@@ -1532,6 +1600,121 @@ async function executeTool(
         return `✅ Uploaded to Expo Snack!\n🔗 Snack URL: ${snackUrl}\n📱 Scan with Expo Go to test live on your phone`;
       } catch (err: any) {
         return `❌ expo_snack failed: ${err.message}`;
+      }
+    }
+
+    case "generate_image": {
+      try {
+        const baseUrl = (process.env.AI_BASE_URL ?? "").replace(/\/+$/, "");
+        const apiKey = process.env.AI_API_KEY;
+        if (!apiKey) return "❌ AI_API_KEY not configured. Ask admin to set it.";
+
+        const prompt: string = args.prompt;
+        const size: string = args.size ?? "1024x1024";
+        const imageModel = "black-forest-labs/flux-2-pro";
+        const rawFilename: string = args.filename ?? `image_${Date.now()}.png`;
+        const filename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+        sendEvent("notify", { text: `🎨 Generating image: "${prompt.slice(0, 60)}${prompt.length > 60 ? "..." : ""}"` });
+
+        const genRes = await fetch(`${baseUrl}/v1/images/generations`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({ model: imageModel, prompt, n: 1, size }),
+          signal: AbortSignal.timeout(120000),
+        });
+
+        if (!genRes.ok) {
+          const errText = await genRes.text();
+          return `❌ Image generation API error (${genRes.status}): ${errText.slice(0, 300)}`;
+        }
+
+        const genData: any = await genRes.json();
+        const imageUrl: string = genData?.data?.[0]?.url;
+        if (!imageUrl) return `❌ No image URL in response: ${JSON.stringify(genData).slice(0, 300)}`;
+
+        sendEvent("notify", { text: "📥 Downloading generated image..." });
+
+        // Download the image
+        const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(60000) });
+        if (!imgRes.ok) return `❌ Failed to download image from URL`;
+        const imgBuffer = await imgRes.arrayBuffer();
+
+        // Save to project workspace under images/
+        const imgDir = path.join(wsDir, "images");
+        fs.mkdirSync(imgDir, { recursive: true });
+        const imgPath = path.join(imgDir, filename);
+        fs.writeFileSync(imgPath, Buffer.from(imgBuffer));
+
+        const relPath = `images/${filename}`;
+        const previewUrl = `/api/projects/${projectId}/raw/${encodeURIComponent(relPath)}`;
+
+        sendEvent("image_generated", { url: previewUrl, prompt, filename: relPath, size });
+
+        return `✅ Image saved: ${relPath}\nPreview URL: ${previewUrl}\nSize: ${size}\n\nTo use in HTML: <img src="${relPath}" alt="${prompt.slice(0, 40)}" />\nTo use in React: <img src="${relPath}" alt="${prompt.slice(0, 40)}" />\nTo use as CSS background: background-image: url('${relPath}');`;
+      } catch (err: any) {
+        return `❌ generate_image failed: ${err.message}`;
+      }
+    }
+
+    case "git_push": {
+      try {
+        const tokenFromSecrets = secrets.GITHUB_TOKEN;
+        const token = args.token ?? tokenFromSecrets;
+        const repo: string = args.repo;
+        const message: string = args.message ?? "Update from AI Builder agent";
+        const branch: string = args.branch ?? "main";
+
+        if (!token) {
+          sendEvent("request_secret", { key: "GITHUB_TOKEN", description: "GitHub Personal Access Token (with 'repo' scope) — needed to push code to GitHub" });
+          return `[Waiting for user to provide: GITHUB_TOKEN]`;
+        }
+        if (!repo || !repo.includes("/")) return `❌ Invalid repo format. Use 'username/repo-name'`;
+
+        sendEvent("notify", { text: `🚀 Pushing to github.com/${repo}...` });
+
+        const remoteUrl = `https://${token}@github.com/${repo}.git`;
+        const gitignoreContent = `node_modules/\ndist/\n.env\n*.local\n.DS_Store\n`;
+
+        // Create .gitignore if not exists
+        const gitignorePath = path.join(wsDir, ".gitignore");
+        if (!fs.existsSync(gitignorePath)) {
+          fs.writeFileSync(gitignorePath, gitignoreContent);
+        }
+
+        const gitCmd = [
+          `cd "${wsDir}"`,
+          `git init`,
+          `git config user.email "agent@aibuilder.app"`,
+          `git config user.name "AI Builder"`,
+          `git remote remove origin 2>/dev/null || true`,
+          `git remote add origin "${remoteUrl}"`,
+          `git checkout -B "${branch}"`,
+          `git add -A`,
+          `git diff --cached --quiet || git commit -m "${message.replace(/"/g, "'")}"`,
+          `git push -u origin "${branch}" --force`,
+        ].join(" && ");
+
+        const { stdout, stderr } = await execAsync(gitCmd, {
+          timeout: 90000,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        });
+
+        const repoUrl = `https://github.com/${repo}`;
+        sendEvent("git_pushed", { url: repoUrl, repo, branch });
+        return `✅ Successfully pushed to ${repoUrl}\nBranch: ${branch}\n${stdout || stderr || ""}`.trim();
+      } catch (err: any) {
+        const msg = err.message ?? String(err);
+        if (msg.includes("Authentication failed") || msg.includes("403")) {
+          return `❌ GitHub authentication failed. Check that GITHUB_TOKEN has 'repo' scope and is valid.`;
+        }
+        if (msg.includes("repository not found") || msg.includes("404")) {
+          return `❌ Repository not found: ${args.repo}. Make sure the repo exists and the token has access.`;
+        }
+        return `❌ git_push failed: ${msg.slice(0, 400)}`;
       }
     }
 
