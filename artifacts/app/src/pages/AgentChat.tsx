@@ -348,11 +348,11 @@ export function AgentChat() {
           }));
         });
         // Restore tool events, notify banners and expo snacks from localStorage for each message
-        const te: Record<string, { name: string; args?: any; status: string; result?: string }[]> = {};
+        const te: Record<string, ToolEvent[]> = {};
         const nb: Record<string, string[]> = {};
         const es: Record<string, { url: string; qrUrl: string; snackId: string }> = {};
         for (const m of savedMessages as any[]) {
-          try { const v = localStorage.getItem(`te-${projectId}-${m.id}`); if (v) te[m.id] = JSON.parse(v); } catch {}
+          try { const v = localStorage.getItem(`te-${projectId}-${m.id}`); if (v) te[m.id] = JSON.parse(v) as ToolEvent[]; } catch {}
           try { const v = localStorage.getItem(`nb-${projectId}-${m.id}`); if (v) nb[m.id] = JSON.parse(v); } catch {}
           try { const v = localStorage.getItem(`es-${projectId}-${m.id}`); if (v) es[m.id] = JSON.parse(v); } catch {}
         }
@@ -1625,12 +1625,13 @@ function EmptyState({ projectName, onExample }: { projectName?: string; onExampl
 
 // ── Steps Summary Modal (Claude-style timeline) ───────────────────────
 function StepsSummaryModal({
-  tools, notifies, onClose, onOpenCode,
+  tools, notifies, onClose, onOpenCode, onSelectTool,
 }: {
   tools: ToolEvent[];
   notifies: string[];
   onClose: () => void;
   onOpenCode: (path: string, content: string) => void;
+  onSelectTool?: (tool: ToolEvent) => void;
 }) {
   const FILE_TOOL_NAMES = ["file_write", "file_str_replace", "file_delete", "file_read"];
 
@@ -1699,8 +1700,16 @@ function StepsSummaryModal({
                   ? tool.args.query
                   : null;
 
+                const isDetailClickable = !isFile && !isRunning && tool.status === "done" && tool.result && onSelectTool;
                 return (
-                  <div key={i} className="flex items-start gap-3 py-2.5">
+                  <div
+                    key={i}
+                    onClick={() => isDetailClickable ? onSelectTool!(tool) : undefined}
+                    className={cn(
+                      "flex items-start gap-3 py-2.5 rounded-lg px-2 -mx-2 transition-colors",
+                      isDetailClickable ? "cursor-pointer hover:bg-muted/50" : ""
+                    )}
+                  >
                     {/* Icon node */}
                     <div className={cn(
                       "shrink-0 w-[18px] h-[18px] rounded-sm border bg-background mt-0.5 flex items-center justify-center text-[10px]",
@@ -1721,7 +1730,7 @@ function StepsSummaryModal({
                           {title}
                         </button>
                       ) : (
-                        <p className={cn("text-sm font-medium leading-snug", isRunning ? "text-primary" : "text-foreground")}>
+                        <p className={cn("text-sm font-medium leading-snug", isRunning ? "text-primary" : isDetailClickable ? "text-foreground" : "text-foreground")}>
                           {title}
                         </p>
                       )}
@@ -1736,6 +1745,9 @@ function StepsSummaryModal({
                         </div>
                       )}
                     </div>
+                    {isDetailClickable && (
+                      <svg className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    )}
                   </div>
                 );
               })}
@@ -1818,6 +1830,154 @@ function ToolActivitySkeleton({ toolName, args }: { toolName: string; args: Reco
   );
 }
 
+// ── Tool detail modal helpers ─────────────────────────────────────────
+interface SearchResult { title: string; url: string; snippet: string }
+
+function parseSearchResults(raw: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  const blocks = raw.split(/\n\n+/);
+  for (const block of blocks) {
+    const lines = block.trim().split("\n");
+    if (lines.length >= 2) {
+      const m = lines[0].match(/^\*\*(.*?)\*\*$/);
+      if (m) {
+        results.push({ title: m[1].trim(), url: lines[1].trim(), snippet: lines.slice(2).join(" ").trim() });
+      }
+    }
+  }
+  return results;
+}
+
+function getDomain(url: string): string {
+  try { return new URL(url.startsWith("http") ? url : "https://" + url).hostname.replace("www.", ""); }
+  catch { return url.slice(0, 30); }
+}
+
+function faviconBg(url: string): string {
+  const palette = ["bg-blue-500","bg-rose-500","bg-emerald-500","bg-violet-500","bg-amber-500","bg-cyan-500","bg-pink-500","bg-orange-500"];
+  let h = 0; for (let i = 0; i < url.length; i++) h = url.charCodeAt(i) + ((h << 5) - h);
+  return palette[Math.abs(h) % palette.length];
+}
+
+// ── Search Results Modal (iOS bottom sheet) ───────────────────────────
+function SearchResultsModal({ tool, onClose }: { tool: ToolEvent; onClose: () => void }) {
+  const query = tool.args.query ?? "";
+  const results = parseSearchResults(tool.result ?? "");
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-background w-full sm:max-w-lg max-h-[85dvh] rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
+        <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
+          <div className="w-10 h-1 bg-muted-foreground/25 rounded-full" />
+        </div>
+        <div className="flex items-start justify-between px-5 py-3 border-b border-border/60 shrink-0">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🔍</span>
+              <h3 className="font-semibold text-sm text-foreground">Web Search</h3>
+              {results.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-muted text-[10px] text-muted-foreground font-medium">{results.length} results</span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1 truncate max-w-xs">"{query}"</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground transition-colors shrink-0 ml-3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+          {results.length > 0 ? results.map((r, i) => (
+            <a key={i} href={r.url} target="_blank" rel="noopener noreferrer"
+              className="flex gap-3 p-3 rounded-xl hover:bg-muted/50 transition-colors group border border-transparent hover:border-border/40">
+              <div className={`w-9 h-9 rounded-xl ${faviconBg(r.url)} shrink-0 flex items-center justify-center text-white text-sm font-bold mt-0.5 uppercase`}>
+                {getDomain(r.url)[0]}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground leading-snug group-hover:text-primary transition-colors line-clamp-2">{r.title}</p>
+                <p className="text-[11px] text-cyan-600 dark:text-cyan-400 mt-0.5 truncate">{getDomain(r.url)}</p>
+                {r.snippet && <p className="text-xs text-muted-foreground mt-1 leading-relaxed line-clamp-2">{r.snippet}</p>}
+              </div>
+              <svg className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-muted-foreground shrink-0 mt-1 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+              </svg>
+            </a>
+          )) : (
+            <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed px-1 py-2">{(tool.result ?? "").slice(0, 3000)}</pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Shell Output Modal (centered terminal) ────────────────────────────
+function ShellOutputModal({ tool, onClose }: { tool: ToolEvent; onClose: () => void }) {
+  const command = tool.args.command ?? (Array.isArray(tool.args.packages) ? tool.args.packages.join(" ") : "");
+  const output = tool.result ?? "(no output)";
+  const isError = output.startsWith("Exit ") || output.toLowerCase().startsWith("install error");
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[#0d1117] w-full max-w-2xl max-h-[72dvh] rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-white/8">
+        {/* macOS title bar */}
+        <div className="flex items-center gap-2 px-4 py-3 bg-[#161b22] border-b border-white/8 shrink-0">
+          <div className="flex gap-1.5">
+            <button onClick={onClose} className="w-3 h-3 rounded-full bg-[#ff5f57] hover:bg-[#ff5f57]/80 transition-colors" />
+            <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+            <div className="w-3 h-3 rounded-full bg-[#28c840]" />
+          </div>
+          <span className="flex-1 text-center text-[11px] text-white/30 font-mono select-none">Terminal</span>
+          {isError && <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px] font-mono">error</span>}
+        </div>
+        {/* Command row */}
+        <div className="flex items-start gap-2 px-4 py-2.5 bg-[#0d1117] border-b border-white/5 shrink-0 font-mono">
+          <span className="text-emerald-400 text-sm mt-0.5 shrink-0">$</span>
+          <span className="text-white/90 text-sm leading-relaxed break-all">{command}</span>
+        </div>
+        {/* Output */}
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <pre className={`text-sm leading-relaxed whitespace-pre-wrap break-words font-mono ${isError ? "text-red-300" : "text-white/75"}`}>{output}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Generic tool result modal ─────────────────────────────────────────
+function GenericToolModal({ tool, onClose }: { tool: ToolEvent; onClose: () => void }) {
+  const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
+  const detail = tool.args.url || tool.args.file || tool.args.path || "";
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-background w-full max-w-lg max-h-[70dvh] rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-border">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/60 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">{cfg.icon}</span>
+            <div>
+              <h3 className="font-semibold text-sm text-foreground">{cfg.label}</h3>
+              {detail && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs font-mono">{detail}</p>}
+            </div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <pre className="text-xs text-foreground/80 font-mono whitespace-pre-wrap leading-relaxed">{tool.result?.slice(0, 5000) || "(running…)"}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Tool detail dispatcher ────────────────────────────────────────────
+function ToolDetailModal({ tool, onClose }: { tool: ToolEvent; onClose: () => void }) {
+  if (tool.name === "web_search") return <SearchResultsModal tool={tool} onClose={onClose} />;
+  if (tool.name === "shell_exec" || tool.name === "install_packages") return <ShellOutputModal tool={tool} onClose={onClose} />;
+  return <GenericToolModal tool={tool} onClose={onClose} />;
+}
+
 // ── Expo Snack QR card ────────────────────────────────────────────────
 function ExpoSnackCard({ snack }: { snack: { url: string; qrUrl: string; snackId: string } }) {
   return (
@@ -1879,6 +2039,7 @@ function MessageBubble({
 }) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [selectedTool, setSelectedTool] = useState<ToolEvent | null>(null);
   const isCopied = copiedId === msg.id;
 
   if (msg.role === "user") {
@@ -1989,20 +2150,31 @@ function MessageBubble({
                   const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
                   const op = FILE_TOOL_NAMES.includes(tool.name) ? getFileOp(tool) : null;
                   const title = op ? `${cfg.label} ${shortFilename(op.file)}` : cfg.label;
+                  const isClickable = tool.status === "done" && tool.result;
                   return (
-                    <div key={`t-${i}`} className="flex items-start gap-2.5">
+                    <button
+                      key={`t-${i}`}
+                      onClick={() => isClickable ? setSelectedTool(tool) : undefined}
+                      className={cn(
+                        "flex items-start gap-2.5 w-full text-left rounded-lg px-1.5 -mx-1.5 py-1 -my-1 transition-colors",
+                        isClickable ? "hover:bg-muted/60 cursor-pointer" : "cursor-default"
+                      )}
+                    >
                       <span className="shrink-0 w-[18px] h-[18px] rounded-sm border border-border/60 bg-background text-[10px] flex items-center justify-center mt-0.5">
                         {cfg.icon}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-foreground leading-snug">{title}</p>
+                        <p className={cn("text-xs font-medium leading-snug", isClickable ? "text-foreground group-hover:text-primary" : "text-foreground")}>{title}</p>
                         {(tool.args.command || tool.args.url || tool.args.query) && (
                           <p className="text-[11px] text-muted-foreground mt-0.5 truncate font-mono max-w-[240px]">
                             {tool.args.command ?? tool.args.url ?? tool.args.query}
                           </p>
                         )}
                       </div>
-                    </div>
+                      {isClickable && (
+                        <svg className="w-3 h-3 text-muted-foreground/40 shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                      )}
+                    </button>
                   );
                 })}
               </div>
@@ -2117,7 +2289,13 @@ function MessageBubble({
           notifies={notifies}
           onClose={() => setShowSummary(false)}
           onOpenCode={onOpenCode}
+          onSelectTool={(t) => { setShowSummary(false); setSelectedTool(t); }}
         />
+      )}
+
+      {/* ── Tool detail modal ── */}
+      {selectedTool && (
+        <ToolDetailModal tool={selectedTool} onClose={() => setSelectedTool(null)} />
       )}
     </div>
   );
