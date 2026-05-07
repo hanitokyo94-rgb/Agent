@@ -302,7 +302,7 @@ export function AgentChat() {
   const menuRef = useRef<HTMLDivElement>(null);
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const prevIsStreamingRef = useRef(false);
-  // Grace period: don't overwrite local messages from server for 8s after streaming ends
+  // Grace period: don't overwrite local messages from server for 90s after streaming ends
   const lastStreamEndRef = useRef<number>(0);
   const queryClient = useQueryClient();
 
@@ -351,7 +351,7 @@ export function AgentChat() {
           const serverCount = (savedMessages as any[]).length;
           const localFinished = prev.filter((m) => !m.streaming).length;
           // Grace period: if streaming just ended (< 8s ago), keep local messages to avoid flicker
-          const gracePeriodActive = Date.now() - lastStreamEndRef.current < 8000;
+          const gracePeriodActive = Date.now() - lastStreamEndRef.current < 90000;
           if (prev.length > 0 && (localFinished >= serverCount || gracePeriodActive)) return prev;
           return (savedMessages as any[]).map((m) => ({
             id: m.id, role: m.role, content: m.content,
@@ -921,8 +921,11 @@ export function AgentChat() {
       );
       loadFiles();
       loadDeployInfo();
-      queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(projectId) });
-      queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+      // Delay refresh so the server has time to save the message before we refetch
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(projectId) });
+        queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+      }, 3000);
     }
   }, [input, isStreaming, projectId, queryClient, pendingAttachments]);
 

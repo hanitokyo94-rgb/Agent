@@ -67,6 +67,9 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
         secure: false,
+        // Disable timeouts for long-running SSE agent streams
+        proxyTimeout: 0,
+        timeout: 0,
       },
     },
   },
