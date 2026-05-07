@@ -231,6 +231,8 @@ function getPreviewServeDir(projectId: string): string | null {
     const candidate = path.join(wsDir, d);
     if (fs.existsSync(path.join(candidate, "index.html"))) return candidate;
   }
+  // Fallback: serve from workspace root if index.html exists there (simple static sites)
+  if (fs.existsSync(path.join(wsDir, "index.html"))) return wsDir;
   return null;
 }
 
