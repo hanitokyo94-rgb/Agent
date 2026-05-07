@@ -20,21 +20,30 @@ function getLang(filePath: string): string {
   return map[ext] ?? "text";
 }
 
-function getFileIcon(filePath: string): string {
-  const name = filePath.split("/").pop() ?? filePath;
+function getFileIcon(name: string): React.ReactNode {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  if (["ts", "tsx"].includes(ext)) return "🔷";
-  if (["js", "jsx"].includes(ext)) return "🟡";
-  if (["json"].includes(ext)) return "{}";
-  if (["css", "scss"].includes(ext)) return "🎨";
-  if (["html"].includes(ext)) return "🌐";
-  if (["md"].includes(ext)) return "📝";
-  if (["py"].includes(ext)) return "🐍";
-  if (["sh", "bash"].includes(ext)) return "⚡";
-  if (name === ".env" || ext === "env") return "🔐";
-  if (name === "package.json") return "📦";
-  if (name === "tsconfig.json") return "⚙️";
-  return "📄";
+  if (["ts", "tsx"].includes(ext)) return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-500"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M10 12h8M14 8v8"/></svg>
+  );
+  if (["js", "jsx"].includes(ext)) return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-yellow-500"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12h6M12 9v6"/></svg>
+  );
+  if (ext === "json") return <span className="text-[10px] font-mono text-orange-400 font-bold">{"{}"}</span>;
+  if (["css", "scss"].includes(ext)) return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-400"><path d="M4 4l16 16M20 4L4 20"/></svg>
+  );
+  if (ext === "html") return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-orange-500"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+  );
+  if (ext === "md") return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+  );
+  if (ext === "py") return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500"><path d="M12 2C6.48 2 4 4.48 4 7v1h8V7h4v2H8v2H4v4c0 2.52 2.48 5 8 5s8-2.48 8-5v-1h-8v1H8v-2h8v-2h4V7c0-2.52-2.48-5-8-5z"/></svg>
+  );
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground/60"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+  );
 }
 
 interface TreeNode {
@@ -48,18 +57,15 @@ interface TreeNode {
 function buildTree(files: FileEntry[]): TreeNode[] {
   const root: TreeNode[] = [];
   const map = new Map<string, TreeNode>();
-
   const sorted = [...files].sort((a, b) => {
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
     return a.path.localeCompare(b.path);
   });
-
   for (const f of sorted) {
     const parts = f.path.split("/");
     const name = parts[parts.length - 1];
     const node: TreeNode = { name, path: f.path, isDir: f.isDir, size: f.size, children: [] };
     map.set(f.path, node);
-
     if (parts.length === 1) {
       root.push(node);
     } else {
@@ -69,7 +75,6 @@ function buildTree(files: FileEntry[]): TreeNode[] {
       else root.push(node);
     }
   }
-
   return root;
 }
 
@@ -95,19 +100,16 @@ function TreeNodeItem({
         <button
           onClick={() => setOpen((v) => !v)}
           className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-muted/60 transition-colors text-left"
-          style={{ paddingLeft: `${8 + depth * 16}px` }}
+          style={{ paddingLeft: `${8 + depth * 14}px` }}
         >
           <svg
-            width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
             className={cn("shrink-0 text-muted-foreground transition-transform", open ? "rotate-90" : "")}
           >
             <polyline points="9 18 15 12 9 6"/>
           </svg>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-primary/60">
-            {open
-              ? <><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></>
-              : <><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></>
-            }
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-primary/50">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
           </svg>
           <span className="text-xs font-medium text-foreground/80 truncate">{node.name}</span>
           {node.children.length > 0 && (
@@ -130,9 +132,9 @@ function TreeNodeItem({
           ? "bg-primary/10 text-primary"
           : "hover:bg-muted/60 text-foreground/70 hover:text-foreground"
       )}
-      style={{ paddingLeft: `${8 + depth * 16}px` }}
+      style={{ paddingLeft: `${8 + depth * 14}px` }}
     >
-      <span className="text-[11px] shrink-0">{getFileIcon(node.name)}</span>
+      <span className="shrink-0 flex items-center">{getFileIcon(node.name)}</span>
       <span className="truncate font-mono">{node.name}</span>
       <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{formatSize(node.size)}</span>
     </button>
@@ -146,6 +148,7 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState("");
+  const [mobilePane, setMobilePane] = useState<"tree" | "content">("tree");
 
   async function loadFile(filePath: string) {
     setLoading(true);
@@ -160,6 +163,7 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
         setContent(data.content);
         setEditContent(data.content);
         setSelectedPath(filePath);
+        setMobilePane("content");
       }
     } catch {}
     setLoading(false);
@@ -188,6 +192,7 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
     });
     setSelectedPath("");
     setContent("");
+    setMobilePane("tree");
     onRefresh();
   }
 
@@ -213,13 +218,29 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-3 min-w-0">
+            {/* Mobile back button when viewing content */}
+            {mobilePane === "content" && selectedPath && (
+              <button
+                onClick={() => setMobilePane("tree")}
+                className="sm:hidden p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground shrink-0"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+              </button>
+            )}
             <div className="flex items-center gap-2">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary shrink-0">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary shrink-0">
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
               </svg>
-              <span className="text-sm font-semibold">Project Files</span>
+              <span className="text-sm font-semibold">
+                {mobilePane === "content" && selectedPath
+                  ? <span className="font-mono">{selectedPath.split("/").pop()}</span>
+                  : "Project Files"
+                }
+              </span>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="bg-muted px-2 py-0.5 rounded-full">{fileOnlyCount} files</span>
               {dirCount > 0 && <span className="bg-muted px-2 py-0.5 rounded-full">{dirCount} dirs</span>}
             </div>
@@ -241,8 +262,12 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
 
         {/* Body */}
         <div className="flex flex-1 min-h-0">
-          {/* File tree */}
-          <div className="w-52 shrink-0 border-r border-border overflow-y-auto py-2 bg-muted/10">
+          {/* File tree — hidden on mobile when viewing content */}
+          <div className={cn(
+            "shrink-0 border-r border-border overflow-y-auto py-2 bg-muted/10",
+            "w-full sm:w-52",
+            mobilePane === "content" ? "hidden sm:block" : "block"
+          )}>
             {tree.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center px-3">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-muted-foreground/40 mb-2">
@@ -254,20 +279,17 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
             ) : (
               <div className="px-1">
                 {tree.map((node) => (
-                  <TreeNodeItem
-                    key={node.path}
-                    node={node}
-                    depth={0}
-                    selectedPath={selectedPath}
-                    onSelect={loadFile}
-                  />
+                  <TreeNodeItem key={node.path} node={node} depth={0} selectedPath={selectedPath} onSelect={loadFile} />
                 ))}
               </div>
             )}
           </div>
 
-          {/* File content */}
-          <div className="flex-1 flex flex-col min-w-0 bg-background">
+          {/* File content — hidden on mobile when viewing tree */}
+          <div className={cn(
+            "flex-1 flex flex-col min-w-0 bg-background",
+            mobilePane === "tree" ? "hidden sm:flex" : "flex"
+          )}>
             {!selectedPath ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground p-8">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mb-4 opacity-20">
@@ -292,24 +314,23 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
                 {/* File toolbar */}
                 <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-muted/5 shrink-0">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs font-mono text-muted-foreground truncate max-w-[200px]">{selectedPath}</span>
-                    <span className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-muted-foreground shrink-0">{lang}</span>
+                    <span className="text-xs font-mono text-muted-foreground truncate max-w-[160px] sm:max-w-[200px]">{selectedPath}</span>
+                    <span className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-muted-foreground shrink-0 hidden sm:inline">{lang}</span>
                     <span className="text-xs text-muted-foreground shrink-0">{lineCount}L</span>
-                    <span className="text-xs text-muted-foreground shrink-0">{content.length}B</span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {editMode ? (
                       <>
                         <button
                           onClick={() => { setEditMode(false); setEditContent(content); }}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                          className="text-xs px-2.5 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={saveFile}
                           disabled={saving}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
                         >
                           {saving ? "Saving..." : "Save"}
                         </button>
@@ -318,19 +339,19 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
                       <>
                         <button
                           onClick={() => setEditMode(true)}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                          className="text-xs px-2.5 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => navigator.clipboard.writeText(content)}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                          className="text-xs px-2.5 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
                         >
                           Copy
                         </button>
                         <button
                           onClick={deleteFile}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors"
+                          className="text-xs px-2.5 py-1.5 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors"
                         >
                           Delete
                         </button>
@@ -354,7 +375,6 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
                 ) : (
                   <div className="flex-1 overflow-auto relative">
                     <div className="flex min-h-full">
-                      {/* Line numbers */}
                       <div className="shrink-0 py-4 px-3 text-right select-none bg-muted/20 border-r border-border/30">
                         {content.split("\n").map((_, i) => (
                           <div key={i} className="text-xs font-mono leading-relaxed text-muted-foreground/40 h-[1.5em]">
@@ -362,7 +382,6 @@ export function FileModal({ projectId, files, onRefresh, onClose }: FileModalPro
                           </div>
                         ))}
                       </div>
-                      {/* Code */}
                       <pre className="flex-1 p-4 text-xs font-mono leading-relaxed whitespace-pre overflow-x-auto">
                         <code className="text-foreground">{content}</code>
                       </pre>

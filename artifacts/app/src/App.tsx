@@ -62,7 +62,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Auth} />
-      <Route path="/onboarding" component={() => <ProtectedRoute component={Onboarding} />} />
+      <Route path="/onboarding" component={Onboarding} />
       <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/chat/:projectId" component={() => <ProtectedRoute component={AgentChat} />} />
       <Route path="/settings" component={() => <ProtectedRoute component={Settings} />} />

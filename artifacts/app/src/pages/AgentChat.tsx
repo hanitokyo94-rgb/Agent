@@ -148,10 +148,12 @@ export function AgentChat() {
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "streaming" | "error">("idle");
   const [secretRequests, setSecretRequests] = useState<SecretRequest[]>([]);
+  const [messageQueue, setMessageQueue] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const prevIsStreamingRef = useRef(false);
   const queryClient = useQueryClient();
 
   const { data: project } = useGetProject(projectId, {
@@ -223,6 +225,16 @@ export function AgentChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [streamingMessages, toolEvents, notifyBanners]);
 
+  // Auto-send queued messages when streaming finishes
+  useEffect(() => {
+    if (prevIsStreamingRef.current && !isStreaming && messageQueue.length > 0) {
+      const [next, ...rest] = messageQueue;
+      setMessageQueue(rest);
+      setTimeout(() => sendMessage(next), 600);
+    }
+    prevIsStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
   // Close menu on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -292,7 +304,17 @@ export function AgentChat() {
 
   const sendMessage = useCallback(async (overrideContent?: string) => {
     const text = (overrideContent ?? input).trim();
-    if ((!text && pendingAttachments.length === 0) || isStreaming) return;
+    if (!text && pendingAttachments.length === 0) return;
+
+    // If streaming and this is a new user-typed message, add to queue
+    if (isStreaming && !overrideContent) {
+      setMessageQueue((prev) => [...prev, text]);
+      setInput("");
+      setPendingAttachments([]);
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      return;
+    }
+
     if (!overrideContent) {
       setInput("");
       setPendingAttachments([]);
@@ -740,16 +762,37 @@ export function AgentChat() {
                 </div>
               )}
 
+              {/* Message queue indicator */}
+              {messageQueue.length > 0 && (
+                <div className="flex items-center gap-2 px-1">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/60 border border-border/50 text-xs text-muted-foreground">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                      <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+                      <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                    </svg>
+                    <span>{messageQueue.length} queued — will send when agent finishes</span>
+                    <button
+                      onClick={() => setMessageQueue([])}
+                      className="ml-1 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden focus-within:border-border transition-all">
                 <textarea
                   ref={textareaRef}
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask anything or describe what to build..."
+                  placeholder={isStreaming ? "Type to queue next message..." : "Ask anything or describe what to build..."}
                   rows={1}
-                  disabled={isStreaming}
-                  className="w-full px-4 pt-3.5 pb-2 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/70 disabled:opacity-60 max-h-[220px]"
+                  className="w-full px-4 pt-3.5 pb-2 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/70 max-h-[220px]"
                 />
                 <div className="flex items-center justify-between px-3 pb-2.5">
                   <div className="flex items-center gap-1">
@@ -774,26 +817,40 @@ export function AgentChat() {
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={isStreaming ? () => abortRef.current?.abort() : () => sendMessage()}
-                    disabled={!isStreaming && !input.trim() && pendingAttachments.length === 0}
-                    className={cn(
-                      "flex items-center justify-center w-8 h-8 rounded-xl text-sm font-medium transition-all",
-                      isStreaming
-                        ? "bg-foreground/10 text-foreground hover:bg-foreground/20"
-                        : "bg-foreground text-background hover:opacity-90 disabled:opacity-30"
-                    )}
-                  >
-                    {isStreaming ? (
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                        <rect x="6" y="6" width="12" height="12" rx="1"/>
-                      </svg>
-                    ) : (
+                  {isStreaming ? (
+                    <div className="flex items-center gap-1">
+                      {input.trim() && (
+                        <button
+                          onClick={() => sendMessage()}
+                          className="flex items-center justify-center w-8 h-8 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-all"
+                          title="Queue message"
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+                          </svg>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => abortRef.current?.abort()}
+                        className="flex items-center justify-center w-8 h-8 rounded-xl bg-foreground/10 text-foreground hover:bg-foreground/20 transition-all"
+                        title="Stop"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                          <rect x="6" y="6" width="12" height="12" rx="1"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => sendMessage()}
+                      disabled={!input.trim() && pendingAttachments.length === 0}
+                      className="flex items-center justify-center w-8 h-8 rounded-xl bg-foreground text-background hover:opacity-90 disabled:opacity-30 transition-all"
+                    >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
                       </svg>
-                    )}
-                  </button>
+                    </button>
+                  )}
                 </div>
               </div>
               <p className="text-center text-xs text-muted-foreground/40">AI can make mistakes. ⌘+Enter to send</p>

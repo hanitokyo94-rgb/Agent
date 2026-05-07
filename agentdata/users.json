@@ -32,5 +32,22 @@
     "creditsUsed": 0,
     "plan": "free",
     "createdAt": "2026-05-07T01:27:12.204Z"
+  },
+  {
+    "id": "3bf7ac09-e5e2-4a37-9ba8-434f9ec35b91",
+    "name": "Test User",
+    "email": "testmigration1778119340255@test.com",
+    "passwordHash": "$2b$10$vR3mKCS7xCqgPqHvBSgpq.q2MuMBpdDoPtDzF3nScb59XSL8LIOie",
+    "avatar": null,
+    "onboardingCompleted": true,
+    "skillLevel": "intermediate",
+    "category": "web",
+    "adSource": "other",
+    "country": null,
+    "language": "en",
+    "credits": 20,
+    "creditsUsed": 0,
+    "plan": "free",
+    "createdAt": "2026-05-07T02:04:36.306Z"
   }
 ]

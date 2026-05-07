@@ -632,9 +632,12 @@ async function executeTool(
 
     case "get_secrets": {
       const current = getProjectSecrets(projectId);
+      const platformUrl = process.env.PLATFORM_URL ?? "https://your-platform.replit.app";
+      // Auto-inject BOBO vars if not already set
+      if (!current["VITE_BOBO_PROJECT_KEY"]) current["VITE_BOBO_PROJECT_KEY"] = projectId;
+      if (!current["VITE_BOBO_API_URL"]) current["VITE_BOBO_API_URL"] = platformUrl;
       const keys = Object.keys(current);
-      if (keys.length === 0) return "No secrets stored for this project.";
-      return `Stored secrets (names only):\n${keys.join("\n")}`;
+      return `Stored secrets (names only):\n${keys.join("\n")}\n\nNote: VITE_BOBO_PROJECT_KEY=${projectId} and VITE_BOBO_API_URL=${platformUrl} are auto-configured.`;
     }
 
     case "request_secret": {
@@ -733,7 +736,10 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const wsFiles = fs.existsSync(wsDir) ? listFilesRecursive(wsDir).filter((f) => !f.isDir) : [];
 
   const OpenAI = (await import("openai")).default;
-  const client = new OpenAI({ apiKey: process.env.AI_API_KEY, baseURL: process.env.AI_BASE_URL });
+  const client = new OpenAI({
+    apiKey: process.env.AI_API_KEY ?? process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    baseURL: process.env.AI_BASE_URL ?? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  });
 
   // Build initial messages — use last 20 for context
   const historyMessages = allMsgs.slice(-20).map((m: any) => ({ role: m.role, content: m.content }));
@@ -748,7 +754,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const aiMsgId = (await import("uuid")).v4();
   let fullContent = "";
   const toolsUsed: string[] = [];
-  const model = process.env.AI_MODEL ?? "anthropic/claude-opus-4-5";
+  const model = process.env.AI_MODEL ?? "gpt-5.4";
   const isThinkingModel = model.toLowerCase().includes("qwen") || model.toLowerCase().includes("deepseek-r") || model.toLowerCase().includes("qwq");
 
   try {
