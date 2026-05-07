@@ -1,4 +1,6 @@
 import { Router } from "express";
+import fs from "fs";
+import path from "path";
 import {
   readCollection,
   updateRecord,
@@ -7,6 +9,24 @@ import {
 } from "../lib/storage.js";
 import type { User } from "./auth.js";
 import { toPublic } from "./auth.js";
+
+const ADMIN_CONFIG_PATH = path.join(process.cwd(), "agentdata", "admin-config.json");
+
+function readAdminConfig(): Record<string, any> {
+  try {
+    if (fs.existsSync(ADMIN_CONFIG_PATH)) {
+      return JSON.parse(fs.readFileSync(ADMIN_CONFIG_PATH, "utf-8"));
+    }
+  } catch {}
+  return {};
+}
+
+function writeAdminConfig(data: Record<string, any>) {
+  try {
+    fs.mkdirSync(path.dirname(ADMIN_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(ADMIN_CONFIG_PATH, JSON.stringify(data, null, 2));
+  } catch {}
+}
 
 const router = Router();
 
@@ -133,6 +153,26 @@ router.get("/admin/users/:userId/projects", adminMiddleware, (req, res) => {
     messageCount: messages.filter((m) => m.projectId === p.id).length,
   }));
   res.json(result);
+});
+
+// ── Platform AI config ─────────────────────────────────────────────────
+router.get("/admin/config", adminMiddleware, (req, res) => {
+  const config = readAdminConfig();
+  res.json({
+    model: config.model ?? process.env.AI_MODEL ?? "gpt-5.4",
+    baseURL: config.baseURL ?? process.env.AI_BASE_URL ?? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? "",
+  });
+});
+
+router.put("/admin/config", adminMiddleware, (req, res) => {
+  const { model, baseURL } = req.body as { model?: string; baseURL?: string };
+  const current = readAdminConfig();
+  if (model !== undefined) current.model = model;
+  if (baseURL !== undefined) current.baseURL = baseURL;
+  writeAdminConfig(current);
+  if (model) process.env.AI_MODEL = model;
+  if (baseURL) process.env.AI_BASE_URL = baseURL;
+  res.json({ success: true, model: current.model, baseURL: current.baseURL });
 });
 
 export default router;

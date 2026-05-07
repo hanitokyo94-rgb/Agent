@@ -44,6 +44,11 @@ export function Admin() {
   const [search, setSearch] = useState("");
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [userProjects, setUserProjects] = useState<any[]>([]);
+  const [aiModel, setAiModel] = useState("");
+  const [aiBaseURL, setAiBaseURL] = useState("");
+  const [aiConfigLoaded, setAiConfigLoaded] = useState(false);
+  const [aiConfigSaving, setAiConfigSaving] = useState(false);
+  const [aiConfigSaved, setAiConfigSaved] = useState(false);
 
   const { data: me } = useGetMe({ query: { queryKey: getGetMeQueryKey() } });
 
@@ -53,19 +58,41 @@ export function Admin() {
     const token = localStorage.getItem("token");
     const h = { Authorization: `Bearer ${token}` };
     try {
-      const [usersRes, statsRes] = await Promise.all([
+      const [usersRes, statsRes, configRes] = await Promise.all([
         fetch("/api/admin/users", { headers: h }),
         fetch("/api/admin/stats", { headers: h }),
+        fetch("/api/admin/config", { headers: h }),
       ]);
       if (usersRes.status === 403) { setError("Admin access required."); setLoading(false); return; }
       if (usersRes.status === 401) { setLocation("/"); return; }
       setUsers(await usersRes.json());
       setStats(await statsRes.json());
+      if (configRes.ok) {
+        const cfg = await configRes.json();
+        setAiModel(cfg.model ?? "");
+        setAiBaseURL(cfg.baseURL ?? "");
+        setAiConfigLoaded(true);
+      }
       setLoaded(true);
     } catch {
       setError("Failed to load admin data");
     }
     setLoading(false);
+  }
+
+  async function saveAiConfig() {
+    setAiConfigSaving(true);
+    const token = localStorage.getItem("token");
+    const res = await fetch("/api/admin/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ model: aiModel, baseURL: aiBaseURL }),
+    });
+    if (res.ok) {
+      setAiConfigSaved(true);
+      setTimeout(() => setAiConfigSaved(false), 2500);
+    }
+    setAiConfigSaving(false);
   }
 
   async function loadUserProjects(userId: string) {
@@ -166,6 +193,55 @@ export function Admin() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
+
+        {/* AI Model Config */}
+        {aiConfigLoaded && (
+          <div className="bg-card border border-border rounded-2xl p-5 mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary">
+                <path d="M12 2a2 2 0 012 2v2a2 2 0 01-4 0V4a2 2 0 012-2zm0 16a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2zM2 12a2 2 0 012-2h2a2 2 0 010 4H4a2 2 0 01-2-2zm16 0a2 2 0 012-2h2a2 2 0 010 4h-2a2 2 0 01-2-2z"/>
+              </svg>
+              <h2 className="font-semibold">Platform AI Model</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Model</label>
+                <input
+                  type="text"
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                  placeholder="gpt-5.4"
+                  className="w-full px-3 py-2.5 bg-muted rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">Takes effect immediately for all new agent requests</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Base URL <span className="font-normal">(optional)</span></label>
+                <input
+                  type="url"
+                  value={aiBaseURL}
+                  onChange={(e) => setAiBaseURL(e.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                  className="w-full px-3 py-2.5 bg-muted rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">Leave blank to use default platform endpoint</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 mt-4">
+              <button
+                onClick={saveAiConfig}
+                disabled={aiConfigSaving}
+                className="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {aiConfigSaving ? "Saving..." : aiConfigSaved ? "✓ Saved!" : "Save AI config"}
+              </button>
+              <p className="text-xs text-muted-foreground">
+                Current: <code className="font-mono bg-muted px-1.5 rounded">{aiModel || "gpt-5.4"}</code>
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Stats */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">

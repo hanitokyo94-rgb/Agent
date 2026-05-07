@@ -10,5 +10,15 @@
     "githubBranch": "main",
     "createdAt": "2026-05-07T01:21:31.876Z",
     "updatedAt": "2026-05-07T01:29:22.722Z"
+  },
+  {
+    "id": "c70540b6-8815-4495-9de6-0a2be431ab1b",
+    "name": "Create a Discord bot with TypeScript",
+    "description": "Create a Discord bot with TypeScript",
+    "url": null,
+    "category": null,
+    "userId": "d2782207-32a3-40e6-8f98-b2865e927393",
+    "createdAt": "2026-05-07T02:51:45.033Z",
+    "updatedAt": "2026-05-07T02:52:34.606Z"
   }
 ]

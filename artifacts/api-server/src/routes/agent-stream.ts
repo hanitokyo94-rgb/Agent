@@ -827,7 +827,11 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     return;
   }
 
-  const { content } = req.body as { content?: string };
+  const { content, customAI, githubToken } = req.body as {
+    content?: string;
+    customAI?: { baseUrl?: string; apiKey?: string; model?: string };
+    githubToken?: string;
+  };
   if (!content) { res.status(400).json({ error: "content is required" }); return; }
 
   const users = findWhere<User>("users", (u) => u.id === userId);
@@ -877,11 +881,22 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const wsDir = getWorkspaceDir(req.params.projectId);
   const wsFiles = fs.existsSync(wsDir) ? listFilesRecursive(wsDir).filter((f) => !f.isDir) : [];
 
+  // Custom AI credentials (from user's own AI config in Settings)
+  const useCustomAI = customAI?.apiKey && customAI.apiKey.trim().length > 0;
+  const platformApiKey = process.env.AI_API_KEY ?? process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const platformBaseURL = process.env.AI_BASE_URL ?? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  const platformModel = process.env.AI_MODEL ?? "gpt-5.4";
+
   const OpenAI = (await import("openai")).default;
-  const client = new OpenAI({
-    apiKey: process.env.AI_API_KEY ?? process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_BASE_URL ?? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+
+  function makeClient(apiKey: string, baseURL?: string) {
+    return new OpenAI({ apiKey, baseURL: baseURL || undefined });
+  }
+
+  let client = makeClient(
+    useCustomAI ? customAI!.apiKey! : platformApiKey!,
+    useCustomAI ? (customAI!.baseUrl || undefined) : platformBaseURL
+  );
 
   // Build initial messages — use last 20 for context
   const historyMessages = allMsgs.slice(-20).map((m: any) => ({ role: m.role, content: m.content }));
@@ -896,7 +911,10 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const aiMsgId = (await import("uuid")).v4();
   let fullContent = "";
   const toolsUsed: string[] = [];
-  const model = process.env.AI_MODEL ?? "gpt-5.4";
+  const model = (useCustomAI && customAI!.model) ? customAI!.model : platformModel;
+  const usingCustomAI = useCustomAI;
+
+  sendEvent("ai_source", { source: usingCustomAI ? "custom" : "platform", model });
   const isThinkingModel = model.toLowerCase().includes("qwen") || model.toLowerCase().includes("deepseek-r") || model.toLowerCase().includes("qwq");
 
   try {
@@ -1097,6 +1115,66 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     sendEvent("error", { message: err.message ?? "Agent error" });
   } finally {
     res.end();
+  }
+});
+
+// ── GitHub push route ─────────────────────────────────────────────────
+router.post("/projects/:projectId/github/push", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+
+  const project = findById<any>("projects", req.params.projectId);
+  if (!project || project.userId !== userId) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+
+  const { token, repo, message } = req.body as { token: string; repo: string; message?: string };
+  if (!token || !repo) {
+    res.status(400).json({ error: "token and repo are required (format: owner/repo)" });
+    return;
+  }
+
+  const wsDir = getWorkspaceDir(req.params.projectId);
+  if (!fs.existsSync(wsDir)) {
+    res.status(400).json({ error: "Project workspace is empty — no files to push" });
+    return;
+  }
+
+  try {
+    const commitMsg = message || `Update from AI Builder — ${new Date().toISOString().slice(0, 10)}`;
+    const remoteUrl = `https://${token}@github.com/${repo}.git`;
+
+    // Init git if needed
+    if (!fs.existsSync(path.join(wsDir, ".git"))) {
+      await execAsync(`git init && git branch -M main`, { cwd: wsDir });
+    }
+
+    // Set up git user if not set
+    await execAsync(`git config user.email "ai-builder@platform.dev" && git config user.name "AI Builder"`, { cwd: wsDir });
+
+    // Stage all, commit, push
+    await execAsync(`git add -A`, { cwd: wsDir });
+
+    let commitOutput = "";
+    try {
+      const { stdout } = await execAsync(`git commit -m "${commitMsg.replace(/"/g, "'")}"`, { cwd: wsDir });
+      commitOutput = stdout;
+    } catch (e: any) {
+      // If nothing to commit, that's OK
+      if (!e.stdout?.includes("nothing to commit")) throw e;
+      commitOutput = "Nothing new to commit";
+    }
+
+    await execAsync(`git remote remove origin 2>/dev/null || true`, { cwd: wsDir });
+    await execAsync(`git remote add origin ${remoteUrl}`, { cwd: wsDir });
+    await execAsync(`git push -u origin main --force`, { cwd: wsDir });
+
+    const repoUrl = `https://github.com/${repo}`;
+    res.json({ success: true, url: repoUrl, commit: commitOutput.trim() });
+  } catch (err: any) {
+    const msg = err.stderr ?? err.message ?? "Push failed";
+    res.status(500).json({ error: msg.replace(token, "***") });
   }
 });
 

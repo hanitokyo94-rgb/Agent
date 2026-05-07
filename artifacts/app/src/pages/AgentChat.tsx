@@ -268,6 +268,21 @@ export function AgentChat() {
   const [activeSkill, setActiveSkill] = useState<Skill | null>(null);
   const [userSkills, setUserSkills] = useState<Skill[]>(() => loadUserSkills());
   const [showSkillsManager, setShowSkillsManager] = useState(false);
+  const [customAIConfig] = useState<{ baseUrl: string; apiKey: string; model: string; enabled: boolean }>(() => {
+    try { return JSON.parse(localStorage.getItem("custom-ai-config") ?? "{}"); } catch { return { baseUrl: "", apiKey: "", model: "", enabled: false }; }
+  });
+  const [useCustomAI, setUseCustomAI] = useState<boolean>(() => {
+    try { const cfg = JSON.parse(localStorage.getItem("custom-ai-config") ?? "{}"); return !!cfg.enabled && !!cfg.apiKey; } catch { return false; }
+  });
+  const [showGithubModal, setShowGithubModal] = useState(false);
+  const [githubPushStatus, setGithubPushStatus] = useState<"idle" | "pushing" | "done" | "error">("idle");
+  const [githubPushResult, setGithubPushResult] = useState<{ url?: string; error?: string } | null>(null);
+  const [githubRepo, setGithubRepo] = useState<string>(() => {
+    try { const cfg = JSON.parse(localStorage.getItem("github-config") ?? "{}"); return cfg.defaultRepo ?? ""; } catch { return ""; }
+  });
+  const [githubCommitMsg, setGithubCommitMsg] = useState("");
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [aiSourceLabel, setAiSourceLabel] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -481,6 +496,43 @@ export function AgentChat() {
 
   const allSkills = [...BUILT_IN_SKILLS, ...userSkills];
 
+  function copyMessage(content: string, id: string) {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopiedMsgId(id);
+      setTimeout(() => setCopiedMsgId(null), 2000);
+    });
+  }
+
+  async function pushToGitHub() {
+    const githubCfg = (() => { try { return JSON.parse(localStorage.getItem("github-config") ?? "{}"); } catch { return {}; } })();
+    const token = githubCfg.token;
+    if (!token) { setGithubPushResult({ error: "No GitHub token found. Add it in Settings → Connectors." }); setGithubPushStatus("error"); return; }
+    const repo = githubRepo || githubCfg.defaultRepo;
+    if (!repo) { setGithubPushResult({ error: "Enter a repository (e.g. username/myrepo)" }); setGithubPushStatus("error"); return; }
+
+    setGithubPushStatus("pushing");
+    setGithubPushResult(null);
+    const authToken = localStorage.getItem("token");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/github/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+        body: JSON.stringify({ token, repo, message: githubCommitMsg || undefined }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setGithubPushResult({ url: json.url });
+        setGithubPushStatus("done");
+      } else {
+        setGithubPushResult({ error: json.error ?? "Push failed" });
+        setGithubPushStatus("error");
+      }
+    } catch (e: any) {
+      setGithubPushResult({ error: e.message ?? "Network error" });
+      setGithubPushStatus("error");
+    }
+  }
+
   const sendMessage = useCallback(async (overrideContent?: string) => {
     const text = (overrideContent ?? input).trim();
     if (!text && pendingAttachments.length === 0) return;
@@ -546,7 +598,13 @@ export function AgentChat() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ content: finalText, mode: agentMode }),
+        body: JSON.stringify({
+          content: finalText,
+          mode: agentMode,
+          ...(useCustomAI && customAIConfig.apiKey ? {
+            customAI: { baseUrl: customAIConfig.baseUrl, apiKey: customAIConfig.apiKey, model: customAIConfig.model },
+          } : {}),
+        }),
         signal: abortRef.current.signal,
       });
 
@@ -572,6 +630,9 @@ export function AgentChat() {
             try {
               const data = JSON.parse(dataStr);
               switch (eventType) {
+                case "ai_source":
+                  setAiSourceLabel(data.source === "custom" ? `Custom · ${data.model ?? ""}` : `Platform · ${data.model ?? ""}`);
+                  break;
                 case "chunk":
                   if (data.delta !== undefined) {
                     aiContent += data.delta;
@@ -822,6 +883,43 @@ export function AgentChat() {
                 </div>
               )}
 
+              {/* AI source toggle */}
+              {customAIConfig.apiKey && customAIConfig.enabled && (
+                <button
+                  onClick={() => setUseCustomAI((v) => !v)}
+                  title={useCustomAI ? "Using your AI — click to switch to platform AI" : "Using platform AI — click to switch to your AI"}
+                  className={cn(
+                    "hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors",
+                    useCustomAI
+                      ? "bg-violet-500/10 text-violet-600 border-violet-500/20 hover:bg-violet-500/20"
+                      : "bg-muted text-muted-foreground border-border hover:bg-muted/70"
+                  )}
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2a2 2 0 012 2v2a2 2 0 01-4 0V4a2 2 0 012-2zm0 16a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2zM2 12a2 2 0 012-2h2a2 2 0 010 4H4a2 2 0 01-2-2zm16 0a2 2 0 012-2h2a2 2 0 010 4h-2a2 2 0 01-2-2z"/>
+                  </svg>
+                  {useCustomAI ? "My AI" : "Platform"}
+                </button>
+              )}
+
+              {/* GitHub push button */}
+              {fileCount > 0 && (
+                <button
+                  onClick={() => { setShowGithubModal(true); setGithubPushStatus("idle"); setGithubPushResult(null); }}
+                  title="Push to GitHub"
+                  className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium border border-border bg-muted text-muted-foreground hover:bg-muted/70 transition-colors"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+                  </svg>
+                  GitHub
+                </button>
+              )}
+
+              {aiSourceLabel && connectionStatus === "streaming" && (
+                <span className="hidden md:inline text-[10px] text-muted-foreground/60 font-mono">{aiSourceLabel}</span>
+              )}
+
               {deployUrl && (
                 <a href={deployUrl} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors font-medium">
@@ -936,6 +1034,8 @@ export function AgentChat() {
                   tools={toolEvents[msg.id] ?? []}
                   notifies={notifyBanners[msg.id] ?? []}
                   onOpenCode={(p, c) => setCodeViewFile({ path: p, content: c })}
+                  onCopy={(content, id) => copyMessage(content, id)}
+                  copiedId={copiedMsgId}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -1198,6 +1298,105 @@ export function AgentChat() {
           onDelete={deleteUserSkill}
           onClose={() => setShowSkillsManager(false)}
         />
+      )}
+
+      {/* ── GitHub Push Modal ── */}
+      {showGithubModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (githubPushStatus !== "pushing") setShowGithubModal(false); }} />
+          <div className="relative bg-background w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
+            <div className="flex justify-center pt-3 pb-1 sm:hidden">
+              <div className="w-10 h-1 bg-muted-foreground/20 rounded-full" />
+            </div>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+                </svg>
+                <h3 className="font-semibold text-sm">Push to GitHub</h3>
+              </div>
+              <button onClick={() => setShowGithubModal(false)} className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {githubPushStatus === "done" ? (
+                <div className="flex flex-col items-center gap-3 py-4 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-600">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm">Pushed successfully!</p>
+                    {githubPushResult?.url && (
+                      <a href={githubPushResult.url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline">{githubPushResult.url}</a>
+                    )}
+                  </div>
+                  <button onClick={() => setShowGithubModal(false)}
+                    className="px-5 py-2 rounded-xl bg-foreground text-background text-sm font-medium hover:opacity-90 transition-all">
+                    Close
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Repository</label>
+                    <input
+                      type="text"
+                      value={githubRepo}
+                      onChange={(e) => setGithubRepo(e.target.value)}
+                      placeholder="username/repository"
+                      className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                    />
+                    <p className="text-[11px] text-muted-foreground mt-1">Repository will be created if it doesn't exist (with your token's permissions)</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Commit message <span className="font-normal">(optional)</span></label>
+                    <input
+                      type="text"
+                      value={githubCommitMsg}
+                      onChange={(e) => setGithubCommitMsg(e.target.value)}
+                      placeholder="Update from AI Builder"
+                      className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                    />
+                  </div>
+                  {githubPushResult?.error && (
+                    <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/20 rounded-xl px-3.5 py-2.5">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-destructive shrink-0 mt-0.5">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                      <p className="text-xs text-destructive">{githubPushResult.error}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      onClick={pushToGitHub}
+                      disabled={githubPushStatus === "pushing"}
+                      className="flex-1 py-2.5 rounded-xl bg-foreground text-background text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {githubPushStatus === "pushing" ? (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                            <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M21 12a9 9 0 01-9-9"/>
+                          </svg>
+                          Pushing...
+                        </>
+                      ) : "Push to GitHub"}
+                    </button>
+                    <button onClick={() => setShowGithubModal(false)}
+                      className="px-4 py-2.5 rounded-xl text-sm border border-border hover:bg-muted transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1474,19 +1673,22 @@ function ToolActivitySkeleton({ toolName, args }: { toolName: string; args: Reco
 
 // ── Message bubble ───────────────────────────────────────────────────
 function MessageBubble({
-  msg, tools, notifies, onOpenCode,
+  msg, tools, notifies, onOpenCode, onCopy, copiedId,
 }: {
   msg: StreamMessage;
   tools: ToolEvent[];
   notifies: string[];
   onOpenCode: (path: string, content: string) => void;
+  onCopy?: (content: string, id: string) => void;
+  copiedId?: string | null;
 }) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const isCopied = copiedId === msg.id;
 
   if (msg.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex justify-end group">
         <div className="max-w-[82%] space-y-2">
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 justify-end">
@@ -1498,8 +1700,23 @@ function MessageBubble({
               ))}
             </div>
           )}
-          <div className="bg-muted/70 border border-border/40 px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-            {msg.content}
+          <div className="relative">
+            <div className="bg-muted/70 border border-border/40 px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+              {msg.content}
+            </div>
+            {onCopy && msg.content && (
+              <button
+                onClick={() => onCopy(msg.content, msg.id)}
+                className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-background border border-border shadow-sm opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                title="Copy"
+              >
+                {isCopied ? (
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-600"><polyline points="20 6 9 17 4 12"/></svg>
+                ) : (
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1658,12 +1875,31 @@ function MessageBubble({
 
       {/* ── Message content ── */}
       {(msg.content || (msg.streaming && !msg.content && !runningTool)) && (
-        <div className="text-sm leading-relaxed text-foreground">
+        <div className="text-sm leading-relaxed text-foreground group/msg relative">
           {msg.content ? (
             <>
               <MarkdownRenderer content={msg.content} streaming={msg.streaming} />
               {msg.streaming && (
                 <span className="inline-block w-1.5 h-3.5 bg-foreground/40 rounded ml-0.5 animate-pulse align-middle" />
+              )}
+              {!msg.streaming && onCopy && (
+                <button
+                  onClick={() => onCopy(msg.content, msg.id)}
+                  className="mt-2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-muted-foreground border border-border/50 bg-muted/50 hover:bg-muted opacity-0 group-hover/msg:opacity-100 transition-opacity"
+                  title="Copy message"
+                >
+                  {isCopied ? (
+                    <>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-600"><polyline points="20 6 9 17 4 12"/></svg>
+                      <span className="text-emerald-600">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      Copy
+                    </>
+                  )}
+                </button>
               )}
             </>
           ) : msg.streaming ? (
