@@ -380,18 +380,22 @@ export function AgentChat() {
 
   // Auto-send description passed from Dashboard via ?desc= query param
   const searchString = useSearch();
+  const autoSentDescRef = useRef(false);
   useEffect(() => {
+    // Guard: only fire once per mount, not on every state change
+    if (autoSentDescRef.current) return;
     if (!searchString || isLoading) return;
     const params = new URLSearchParams(searchString);
     const desc = params.get("desc");
     if (!desc) return;
     // Remove the query param from URL without reload
     window.history.replaceState(null, "", `/chat/${projectId}`);
-    // Only auto-send if there are no existing messages
-    if (savedMessages.length === 0) {
+    // Only auto-send if there are no existing messages and not already streaming
+    if (savedMessages.length === 0 && !isStreaming) {
+      autoSentDescRef.current = true;
       setTimeout(() => sendMessage(desc), 400);
     }
-  }, [isLoading, searchString]);
+  }, [isLoading, isStreaming, savedMessages.length, searchString, projectId]);
 
   // Background task persistence: resume if pending
   useEffect(() => {

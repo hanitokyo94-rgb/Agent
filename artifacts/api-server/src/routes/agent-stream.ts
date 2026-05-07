@@ -1027,14 +1027,38 @@ async function executeTool(
       try {
         sendEvent("notify", { text: "Building project for preview..." });
         const pkgPath = path.join(wsDir, "package.json");
+        const rootIndexHtml = path.join(wsDir, "index.html");
+
+        // ── Plain HTML project (no package.json, just static files) ──
+        if (!fs.existsSync(pkgPath) && fs.existsSync(rootIndexHtml)) {
+          const distPath = path.join(wsDir, "dist");
+          fs.mkdirSync(distPath, { recursive: true });
+          // Copy all workspace files (except dist/.git) into dist/
+          const entries = fs.readdirSync(wsDir);
+          for (const entry of entries) {
+            if (["dist", ".git", "node_modules"].includes(entry)) continue;
+            const src = path.join(wsDir, entry);
+            const dest = path.join(distPath, entry);
+            fs.cpSync(src, dest, { recursive: true, force: true });
+          }
+          sendEvent("preview_ready", { url: `/api/projects/${projectId}/preview/` });
+          return `✅ Static HTML project ready — preview is now live in the browser panel.`;
+        }
+
+        // ── Node/bundled project — detect framework and build ──
         let buildCmd = "npm run build";
         if (fs.existsSync(pkgPath)) {
           const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
           const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+          const usesYarn = fs.existsSync(path.join(wsDir, "yarn.lock"));
+          const usesPnpm = fs.existsSync(path.join(wsDir, "pnpm-lock.yaml"));
+          const pm = usesPnpm ? "pnpm" : usesYarn ? "yarn" : "npm";
           if (deps["vite"] || deps["@vitejs/plugin-react"] || deps["@vitejs/plugin-vue"] || deps["@vitejs/plugin-solid"]) {
-            buildCmd = `npm run build -- --base /api/projects/${projectId}/preview/`;
+            buildCmd = `${pm} run build -- --base /api/projects/${projectId}/preview/`;
           } else if (deps["react-scripts"]) {
-            buildCmd = `PUBLIC_URL=/api/projects/${projectId}/preview npm run build`;
+            buildCmd = `PUBLIC_URL=/api/projects/${projectId}/preview ${pm} run build`;
+          } else {
+            buildCmd = `${pm} run build`;
           }
         }
         const { stdout, stderr } = await execAsync(buildCmd, {
@@ -1046,14 +1070,16 @@ async function executeTool(
         const out = [stdout, stderr].filter(Boolean).join("\n").trim();
         const distPath = path.join(wsDir, "dist");
         const buildPath = path.join(wsDir, "build");
+        const outPath = path.join(wsDir, "out");
         const hasOutput =
           fs.existsSync(path.join(distPath, "index.html")) ||
-          fs.existsSync(path.join(buildPath, "index.html"));
+          fs.existsSync(path.join(buildPath, "index.html")) ||
+          fs.existsSync(path.join(outPath, "index.html"));
         if (hasOutput) {
           sendEvent("preview_ready", { url: `/api/projects/${projectId}/preview/` });
           return `✅ Build complete! Preview is now live in the browser panel.\n${out.slice(0, 1500)}`;
         }
-        return `Build ran but no index.html found in dist/build.\n${out.slice(0, 3000)}`;
+        return `Build ran but no index.html found in dist/build/out.\n${out.slice(0, 3000)}`;
       } catch (err: any) {
         const out = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
         return `❌ Build failed:\n${(out || err.message).slice(0, 4000)}`;
