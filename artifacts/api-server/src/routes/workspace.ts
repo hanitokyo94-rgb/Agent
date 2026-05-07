@@ -223,15 +223,38 @@ router.put("/projects/:projectId/secrets", (req, res) => {
   res.json({ success: true });
 });
 
-// GET /api/projects/:projectId/preview
-router.get("/projects/:projectId/preview", (req, res) => {
-  const wsDir = path.join(WORKSPACES_DIR, req.params.projectId);
-  const distDir = path.join(wsDir, "dist");
-  const publicDir = path.join(wsDir, "public");
-  const serveDir = fs.existsSync(distDir) ? distDir : fs.existsSync(publicDir) ? publicDir : wsDir;
-  const indexPath = path.join(serveDir, "index.html");
-  if (fs.existsSync(indexPath)) res.sendFile(indexPath);
-  else res.status(404).json({ error: "No preview available." });
+// GET /api/projects/:projectId/preview  and  /api/projects/:projectId/preview/*
+// Serves the built static output of a user project, with SPA fallback.
+function getPreviewServeDir(projectId: string): string | null {
+  const wsDir = path.join(WORKSPACES_DIR, projectId);
+  for (const d of ["dist", "build", "out", ".next/out"]) {
+    const candidate = path.join(wsDir, d);
+    if (fs.existsSync(path.join(candidate, "index.html"))) return candidate;
+  }
+  return null;
+}
+
+// Mount a catch-all handler for all preview paths using router.use (avoids path-to-regexp wildcard issues in Express 5)
+router.use("/projects/:projectId/preview", (req, res) => {
+  const serveDir = getPreviewServeDir(req.params.projectId);
+  if (!serveDir) {
+    res.status(404).json({ error: "No preview built yet. Ask the agent to build_preview first." });
+    return;
+  }
+  // req.path is relative to the /preview mount point (e.g. "/" or "/assets/main.css")
+  const relPath = (req.path === "/" || req.path === "") ? "index.html" : req.path.replace(/^\/+/, "");
+  const filePath = path.resolve(serveDir, relPath);
+  // Security: prevent path traversal
+  if (!filePath.startsWith(path.resolve(serveDir))) {
+    res.status(403).send("Forbidden");
+    return;
+  }
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    res.sendFile(filePath);
+  } else {
+    // SPA fallback — return index.html for any unknown path
+    res.sendFile(path.join(serveDir, "index.html"));
+  }
 });
 
 // Helpers

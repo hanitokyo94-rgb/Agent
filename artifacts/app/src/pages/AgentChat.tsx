@@ -288,6 +288,11 @@ export function AgentChat() {
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionCursorInfo, setMentionCursorInfo] = useState<{ start: number; end: number } | null>(null);
   const [expoSnacks, setExpoSnacks] = useState<Record<string, { url: string; qrUrl: string; snackId: string }>>({});
+  const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
+    try { return localStorage.getItem(`preview-url-${projectId}`) ?? null; } catch { return null; }
+  });
+  const [showPreviewPanel, setShowPreviewPanel] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -731,6 +736,12 @@ export function AgentChat() {
                   setDeployUrl(data.url);
                   setDeployBanner(data.url);
                   break;
+                case "preview_ready":
+                  setPreviewUrl(data.url);
+                  setShowPreviewPanel(true);
+                  setIframeKey((k) => k + 1);
+                  try { localStorage.setItem(`preview-url-${projectId}`, data.url); } catch {}
+                  break;
                 case "expo_snack":
                   setExpoSnacks((prev) => ({
                     ...prev,
@@ -861,6 +872,25 @@ export function AgentChat() {
         setInput("Run the project and show me the output");
         setShowMenu(false);
         setTimeout(() => sendMessage("Run the project and show me the output"), 100);
+      },
+    },
+    {
+      label: previewUrl ? (showPreviewPanel ? "Hide Preview" : "Show Preview") : "Build Preview",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      ),
+      onClick: () => {
+        if (previewUrl) {
+          setShowPreviewPanel((v) => !v);
+          setShowMenu(false);
+        } else {
+          setInput("Build the project preview so I can see it live");
+          setShowMenu(false);
+          setTimeout(() => sendMessage("Build the project and create a preview so I can see it live"), 100);
+        }
       },
     },
     {
@@ -1034,6 +1064,25 @@ export function AgentChat() {
 
               {aiSourceLabel && connectionStatus === "streaming" && (
                 <span className="hidden md:inline text-[10px] text-muted-foreground/60 font-mono">{aiSourceLabel}</span>
+              )}
+
+              {previewUrl && (
+                <button
+                  onClick={() => setShowPreviewPanel((v) => !v)}
+                  title={showPreviewPanel ? "Hide preview" : "Show app preview"}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border transition-colors font-medium",
+                    showPreviewPanel
+                      ? "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
+                      : "bg-muted text-muted-foreground border-border hover:bg-muted/70"
+                  )}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                    <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                  </svg>
+                  <span className="hidden sm:inline">Preview</span>
+                </button>
               )}
 
               {deployUrl && (
@@ -1401,8 +1450,70 @@ export function AgentChat() {
           </div>
         </div>
 
+        {/* App Browser Preview Panel */}
+        {showPreviewPanel && previewUrl && (
+          <div className="flex flex-col border-l border-border bg-background shrink-0 overflow-hidden" style={{ width: 520 }}>
+            {/* Browser chrome */}
+            <div className="flex items-center gap-1 px-2 h-10 bg-muted/50 border-b border-border shrink-0">
+              {/* Traffic lights */}
+              <div className="flex items-center gap-1 mr-1">
+                <button
+                  onClick={() => setShowPreviewPanel(false)}
+                  className="w-3 h-3 rounded-full bg-red-400 hover:bg-red-500 transition-colors flex items-center justify-center group"
+                  title="Close preview"
+                >
+                  <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="opacity-0 group-hover:opacity-100">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+                <div className="w-3 h-3 rounded-full bg-yellow-400" />
+                <div className="w-3 h-3 rounded-full bg-green-400" />
+              </div>
+              {/* Reload */}
+              <button
+                onClick={() => setIframeKey((k) => k + 1)}
+                className="p-1 rounded-md hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
+                title="Reload preview"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+                </svg>
+              </button>
+              {/* URL bar */}
+              <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 mx-1 rounded-lg bg-background border border-border/70 text-[11px] text-muted-foreground font-mono truncate">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-muted-foreground/60">
+                  <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+                  <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+                </svg>
+                <span className="truncate">{typeof window !== "undefined" ? window.location.host : ""}{previewUrl}</span>
+              </div>
+              {/* Open in new tab */}
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1 rounded-md hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
+                title="Open in new tab"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+              </a>
+            </div>
+            {/* iframe */}
+            <iframe
+              key={iframeKey}
+              src={previewUrl}
+              className="flex-1 w-full border-none bg-white"
+              title="App Preview"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox"
+            />
+          </div>
+        )}
+
         {/* File tree side panel */}
-        {fileCount > 0 && (
+        {fileCount > 0 && !showPreviewPanel && (
           <div className="hidden lg:flex flex-col w-52 border-l border-border/60 overflow-hidden shrink-0 bg-muted/10">
             <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
               <span className="text-xs font-medium text-muted-foreground">Files</span>

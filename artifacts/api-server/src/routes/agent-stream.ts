@@ -297,6 +297,14 @@ const AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "build_preview",
+      description: "Build the web project and open a live in-platform browser preview so the user can see the app. Call AFTER writing all files and installing packages. Automatically detects Vite/CRA/Next.js and builds with the correct base path.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
 ];
 
 function getSystemPrompt(lang: string | null | undefined, workspaceFileCount: number, platformUrl?: string): string {
@@ -344,6 +352,7 @@ Files Modified: [list]
 - Request secrets from user when needed (use request_secret tool)
 - Deploy projects to Vercel for live public URLs
 - Build Expo/React Native mobile apps and upload to Expo Snack for instant QR code preview on phone
+- Call build_preview to build a web app and open a live browser preview panel inside the platform
 </capabilities>
 
 <agent_loop>
@@ -353,7 +362,7 @@ You operate iteratively:
    - Conversation/question → respond with reasoning, use web_search if needed
    - Build/code/project → use full tool suite: write files, install, build, deploy
 3. Execute in logical order:
-   file_write (package.json first) → file_write (source) → install_packages → shell_exec (build/test) → deploy_to_vercel
+   file_write (package.json first) → file_write (source) → install_packages → build_preview (for live preview) → deploy_to_vercel (for public URL)
 4. Notify progress with message_notify at each meaningful step
 5. ALWAYS end with task_done — NEVER finish without calling it
 </agent_loop>
@@ -1011,6 +1020,43 @@ async function executeTool(
         return `✅ Uploaded to Expo Snack!\n🔗 Snack URL: ${snackUrl}\n📱 Scan with Expo Go to test live on your phone`;
       } catch (err: any) {
         return `❌ expo_snack failed: ${err.message}`;
+      }
+    }
+
+    case "build_preview": {
+      try {
+        sendEvent("notify", { text: "Building project for preview..." });
+        const pkgPath = path.join(wsDir, "package.json");
+        let buildCmd = "npm run build";
+        if (fs.existsSync(pkgPath)) {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+          const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+          if (deps["vite"] || deps["@vitejs/plugin-react"] || deps["@vitejs/plugin-vue"] || deps["@vitejs/plugin-solid"]) {
+            buildCmd = `npm run build -- --base /api/projects/${projectId}/preview/`;
+          } else if (deps["react-scripts"]) {
+            buildCmd = `PUBLIC_URL=/api/projects/${projectId}/preview npm run build`;
+          }
+        }
+        const { stdout, stderr } = await execAsync(buildCmd, {
+          cwd: wsDir,
+          timeout: 180000,
+          env: { ...process.env, ...secrets, NODE_ENV: "production" },
+          maxBuffer: 1024 * 1024 * 8,
+        });
+        const out = [stdout, stderr].filter(Boolean).join("\n").trim();
+        const distPath = path.join(wsDir, "dist");
+        const buildPath = path.join(wsDir, "build");
+        const hasOutput =
+          fs.existsSync(path.join(distPath, "index.html")) ||
+          fs.existsSync(path.join(buildPath, "index.html"));
+        if (hasOutput) {
+          sendEvent("preview_ready", { url: `/api/projects/${projectId}/preview/` });
+          return `✅ Build complete! Preview is now live in the browser panel.\n${out.slice(0, 1500)}`;
+        }
+        return `Build ran but no index.html found in dist/build.\n${out.slice(0, 3000)}`;
+      } catch (err: any) {
+        const out = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
+        return `❌ Build failed:\n${(out || err.message).slice(0, 4000)}`;
       }
     }
 

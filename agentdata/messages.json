@@ -144,5 +144,58 @@
     "thinkingSteps": null,
     "attachmentUrl": null,
     "createdAt": "2026-05-07T02:58:01.504Z"
+  },
+  {
+    "id": "a68f1e4d-3a21-46f6-95f3-9c33c468c093",
+    "projectId": "5a30ff8d-461f-49f2-9aae-9c017ba3d928",
+    "role": "user",
+    "content": "wesite simple تعريفي",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T15:01:30.770Z"
+  },
+  {
+    "id": "d0fbf662-0f67-479c-8d50-3a9752f16ca5",
+    "projectId": "5a30ff8d-461f-49f2-9aae-9c017ba3d928",
+    "role": "assistant",
+    "content": "",
+    "thinkingSteps": [
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "install_packages",
+      "install_packages",
+      "file_write",
+      "file_write",
+      "file_write"
+    ],
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T15:04:55.856Z"
+  },
+  {
+    "id": "a76112b5-cb04-4257-974d-8249a6cc932d",
+    "projectId": "5a30ff8d-461f-49f2-9aae-9c017ba3d928",
+    "role": "user",
+    "content": "Run the project and show me the output",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T15:05:11.042Z"
+  },
+  {
+    "id": "598bab9d-f014-402b-9a3b-e397bc3c41b2",
+    "projectId": "5a30ff8d-461f-49f2-9aae-9c017ba3d928",
+    "role": "assistant",
+    "content": "",
+    "thinkingSteps": [
+      "file_list",
+      "shell_exec",
+      "shell_exec",
+      "shell_exec",
+      "shell_exec"
+    ],
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T15:06:01.544Z"
   }
 ]
