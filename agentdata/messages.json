@@ -197,5 +197,35 @@
     ],
     "attachmentUrl": null,
     "createdAt": "2026-05-07T15:06:01.544Z"
+  },
+  {
+    "id": "e91a8f7d-7c9e-4f49-be97-bf4f2dfdbbe3",
+    "projectId": "d89b1379-6931-402f-b761-df4ce300ee64",
+    "role": "user",
+    "content": "بدي موقع بسيط فقط index.html",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T15:10:48.480Z"
+  },
+  {
+    "id": "ea22e1c5-9cc0-4cac-8251-94dd51fbf6b7",
+    "projectId": "d89b1379-6931-402f-b761-df4ce300ee64",
+    "role": "user",
+    "content": "Build the project and create a preview so I can see it live",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T15:10:57.438Z"
+  },
+  {
+    "id": "0f849cb7-7c27-4d10-b99f-2a1b92c61965",
+    "projectId": "d89b1379-6931-402f-b761-df4ce300ee64",
+    "role": "assistant",
+    "content": "",
+    "thinkingSteps": [
+      "file_write",
+      "build_preview"
+    ],
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T15:12:08.686Z"
   }
 ]

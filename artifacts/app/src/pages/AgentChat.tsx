@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetProject,
@@ -378,6 +378,21 @@ export function AgentChat() {
     }
   }, [savedMessages, isStreaming, projectId]);
 
+  // Auto-send description passed from Dashboard via ?desc= query param
+  const searchString = useSearch();
+  useEffect(() => {
+    if (!searchString || isLoading) return;
+    const params = new URLSearchParams(searchString);
+    const desc = params.get("desc");
+    if (!desc) return;
+    // Remove the query param from URL without reload
+    window.history.replaceState(null, "", `/chat/${projectId}`);
+    // Only auto-send if there are no existing messages
+    if (savedMessages.length === 0) {
+      setTimeout(() => sendMessage(desc), 400);
+    }
+  }, [isLoading, searchString]);
+
   // Background task persistence: resume if pending
   useEffect(() => {
     const pending = localStorage.getItem(PENDING_KEY(projectId));
@@ -718,6 +733,14 @@ export function AgentChat() {
                       ...prev,
                       [aiMsgId]: [...(prev[aiMsgId] ?? []), { name: data.name, args: data.args, status: "running" }],
                     }));
+                    // Incrementally build thinkingSteps so they're saved even before completion
+                    setStreamingMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === aiMsgId
+                          ? { ...m, thinkingSteps: [...(m.thinkingSteps ?? []), data.name] }
+                          : m
+                      )
+                    );
                   }
                   break;
                 case "tool_result":
@@ -754,7 +777,13 @@ export function AgentChat() {
                     setStreamingMessages((prev) =>
                       prev.map((m) =>
                         m.id === aiMsgId
-                          ? { ...m, id: finalMsgId, content: data.content ?? aiContent, streaming: false }
+                          ? {
+                              ...m,
+                              id: finalMsgId,
+                              content: data.content ?? aiContent,
+                              thinkingSteps: data.thinkingSteps ?? m.thinkingSteps ?? null,
+                              streaming: false,
+                            }
                           : m
                       )
                     );

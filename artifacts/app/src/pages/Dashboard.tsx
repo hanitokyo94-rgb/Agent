@@ -99,7 +99,7 @@ export function Dashboard() {
     setDescription(""); setGeneratedName(null);
     const projectRes = await createProject.mutateAsync({ data: { description: desc } });
     queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
-    setLocation(`/chat/${projectRes.id}`);
+    setLocation(`/chat/${projectRes.id}?desc=${encodeURIComponent(desc)}`);
   }
 
   async function handleGithubImport() {
