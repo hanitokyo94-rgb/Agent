@@ -903,9 +903,9 @@ export function AgentChat() {
         </svg>
       ),
       onClick: () => {
-        setInput("Run the project and show me the output");
+        setInput("Build and run the project — if it's a web app use build_preview to show a live preview, if it's a backend/CLI run it and show the output");
         setShowMenu(false);
-        setTimeout(() => sendMessage("Run the project and show me the output"), 100);
+        setTimeout(() => sendMessage("Build and run the project — if it's a web app use build_preview to show a live preview, if it's a backend/CLI run it and show the output"), 100);
       },
     },
     {

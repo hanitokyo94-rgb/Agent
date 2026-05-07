@@ -367,6 +367,22 @@ You operate iteratively:
 5. ALWAYS end with task_done — NEVER finish without calling it
 </agent_loop>
 
+<preview_rules>
+## CRITICAL: How to show web projects to users
+
+ALWAYS use build_preview tool for ANY web project (HTML, React, Vue, static site, etc).
+NEVER try to start a localhost server (python3 -m http.server, node server, npx serve, etc.) — 
+these ports are NOT accessible to the user's browser and will always fail.
+
+When user asks to "run", "show", "open", "preview", or "view" a web project:
+→ Use build_preview tool — it builds and opens a live preview panel automatically.
+
+For simple static HTML (no package.json): build_preview copies files and shows them instantly.
+For React/Vue/Vite projects: build_preview installs dependencies and builds automatically.
+
+NEVER give users a localhost URL. The only working preview method is build_preview.
+</preview_rules>
+
 <project_architecture>
 ## MANDATORY: Every project must be properly structured. NEVER put everything in one file.
 
@@ -1047,12 +1063,13 @@ async function executeTool(
 
         // ── Node/bundled project — detect framework and build ──
         let buildCmd = "npm run build";
+        let pm = "npm";
         if (fs.existsSync(pkgPath)) {
           const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
           const deps = { ...pkg.dependencies, ...pkg.devDependencies };
           const usesYarn = fs.existsSync(path.join(wsDir, "yarn.lock"));
           const usesPnpm = fs.existsSync(path.join(wsDir, "pnpm-lock.yaml"));
-          const pm = usesPnpm ? "pnpm" : usesYarn ? "yarn" : "npm";
+          pm = usesPnpm ? "pnpm" : usesYarn ? "yarn" : "npm";
           if (deps["vite"] || deps["@vitejs/plugin-react"] || deps["@vitejs/plugin-vue"] || deps["@vitejs/plugin-solid"]) {
             buildCmd = `${pm} run build -- --base /api/projects/${projectId}/preview/`;
           } else if (deps["react-scripts"]) {
@@ -1061,6 +1078,25 @@ async function executeTool(
             buildCmd = `${pm} run build`;
           }
         }
+
+        // Auto-install node_modules if missing
+        const nmDir = path.join(wsDir, "node_modules");
+        if (!fs.existsSync(nmDir)) {
+          sendEvent("notify", { text: "Installing dependencies..." });
+          try {
+            await execAsync(`${pm} install`, {
+              cwd: wsDir,
+              timeout: 180000,
+              env: { ...process.env, ...secrets },
+              maxBuffer: 1024 * 1024 * 8,
+            });
+          } catch (installErr: any) {
+            const installOut = [installErr.stdout, installErr.stderr].filter(Boolean).join("\n").trim();
+            return `❌ Dependency install failed:\n${(installOut || installErr.message).slice(0, 3000)}`;
+          }
+        }
+
+        sendEvent("notify", { text: "Building project..." });
         const { stdout, stderr } = await execAsync(buildCmd, {
           cwd: wsDir,
           timeout: 180000,
