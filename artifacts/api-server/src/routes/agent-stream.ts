@@ -7,11 +7,12 @@ import fs from "fs";
 import path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { findById, findWhere, insertRecord, updateRecord } from "../lib/storage.js";
+import { findById, findWhere, insertRecord, updateRecord, upsertRecord } from "../lib/storage.js";
 import { getWorkspaceDir, getProjectSecrets, listFilesRecursive } from "./workspace.js";
 import { deployToVercel } from "../lib/vercel-deploy.js";
 import type { User } from "./auth.js";
 
+import { spawn } from "child_process";
 const execAsync = promisify(exec);
 const router = Router();
 
@@ -181,12 +182,27 @@ const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "shell_exec",
-      description: "Execute a shell command in the project workspace. Timeout: 90s max. Use for: builds, tests, git ops, checking packages.",
+      description: "Execute a short-lived shell command that exits on its own (builds, tests, installs, git ops, tsc checks). NEVER use for long-running servers (npm run dev/start/serve) — those never exit and will timeout. For servers, use shell_background instead.",
       parameters: {
         type: "object",
         properties: {
-          command: { type: "string", description: "Shell command. Use -y/-f flags to avoid prompts." },
+          command: { type: "string", description: "Shell command that exits on completion. Use -y/-f to avoid prompts." },
           timeout: { type: "integer", description: "Timeout in seconds (default: 90, max: 300)" },
+        },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "shell_background",
+      description: "Start a long-running process in the background (dev servers, watchers). Waits up to 8 seconds for startup output, then returns without blocking. Use for: npm run dev, npm start, python app.py, etc. NOTE: The started server is NOT accessible to the user's browser — use build_preview instead to show web apps.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "The long-running command to start in background" },
+          wait_for_output: { type: "string", description: "Optional string to wait for in output before returning (e.g. 'listening on', 'ready')" },
         },
         required: ["command"],
       },
@@ -382,6 +398,30 @@ For React/Vue/Vite projects: build_preview installs dependencies and builds auto
 
 NEVER give users a localhost URL. The only working preview method is build_preview.
 </preview_rules>
+
+<shell_exec_rules>
+## CRITICAL: shell_exec command restrictions
+
+ALLOWED in shell_exec (commands that EXIT on their own):
+- npm run build, pnpm build, vite build
+- npx tsc --noEmit (TypeScript check)
+- npm run lint, eslint
+- git status, git add, git commit
+- mkdir, cp, mv, rm, cat, ls, echo
+- node script.js (short scripts that exit)
+- npm run test (if tests exit)
+
+FORBIDDEN in shell_exec (commands that run FOREVER — use shell_background or build_preview instead):
+- npm run dev, npm run dev --silent
+- npm start, node server.js, node index.js (servers)
+- npx vite, vite dev
+- python app.py, uvicorn, flask run, gunicorn
+- npm run watch, nodemon
+- Any command with --watch or --daemon flags
+
+To verify your code compiles: use: npx tsc --noEmit  OR  npm run build
+To show a web app to the user: use build_preview (NEVER npm run dev)
+</shell_exec_rules>
 
 <project_architecture>
 ## MANDATORY: Every project must be properly structured. NEVER put everything in one file.
@@ -846,9 +886,17 @@ async function executeTool(
     }
 
     case "shell_exec": {
+      const cmd = (args.command as string).trim();
+      // Detect long-running server commands that would hang forever
+      const serverPatterns = /(\bnpm\s+(?:run\s+)?(?:dev|start|serve|watch)\b|\bvite\b(?!\s+build)|\bnodemon\b|\buvicorn\b|\bflask\s+run\b|\bgunicorn\b|\bpython\s+\S+\.py\b|\bnode\s+\S*(?:server|index|app)\b)/i;
+      if (serverPatterns.test(cmd) && !/\b(build|test|lint|tsc)\b/i.test(cmd)) {
+        return `⚠️ This command starts a long-running server and would hang forever in shell_exec.\n` +
+          `Use shell_background to start it in background, or use build_preview to show the app to the user.\n` +
+          `For TypeScript errors: use \`npx tsc --noEmit\`\nFor build check: use \`npm run build\``;
+      }
       const timeoutMs = Math.min((args.timeout ?? 90) * 1000, 300000);
       try {
-        const { stdout, stderr } = await execAsync(args.command, {
+        const { stdout, stderr } = await execAsync(cmd, {
           cwd: wsDir,
           timeout: timeoutMs,
           env: { ...process.env, ...secrets, NODE_ENV: "production" },
@@ -858,8 +906,60 @@ async function executeTool(
         return out.length > 8000 ? out.slice(0, 8000) + "\n...[output truncated]" : out || "(command succeeded, no output)";
       } catch (err: any) {
         const out = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
+        // Distinguish timeout vs real failure
+        if (err.killed && err.signal === "SIGTERM") {
+          return `⏱ Command timed out after ${Math.round(timeoutMs / 1000)}s. If this is a build command, increase timeout. If it's a server, use shell_background instead.\nPartial output:\n${out.slice(0, 3000)}`;
+        }
         return `Exit ${err.code ?? 1}:\n${(out || err.message).slice(0, 6000)}`;
       }
+    }
+
+    case "shell_background": {
+      const cmd = (args.command as string).trim();
+      const waitFor = args.wait_for_output as string | undefined;
+      return new Promise<string>((resolve) => {
+        let output = "";
+        let resolved = false;
+        const proc = spawn("bash", ["-c", cmd], {
+          cwd: wsDir,
+          env: { ...process.env, ...secrets },
+          detached: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        proc.unref(); // Don't keep the Node.js process alive
+
+        const onData = (chunk: Buffer) => {
+          output += chunk.toString();
+          if (waitFor && output.includes(waitFor) && !resolved) {
+            resolved = true;
+            resolve(`✓ Started (matched: "${waitFor}")\nOutput so far:\n${output.slice(0, 2000)}`);
+          }
+        };
+        proc.stdout?.on("data", onData);
+        proc.stderr?.on("data", onData);
+
+        proc.on("error", (err) => {
+          if (!resolved) { resolved = true; resolve(`❌ Failed to start: ${err.message}`); }
+        });
+        proc.on("exit", (code) => {
+          if (!resolved) {
+            resolved = true;
+            resolve(code === 0
+              ? `Process exited cleanly (code 0). Output:\n${output.slice(0, 2000)}`
+              : `Process exited with code ${code}. Output:\n${output.slice(0, 3000)}`);
+          }
+        });
+
+        // Return after 8 seconds with whatever output we have so far
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve(output.trim()
+              ? `✓ Running in background. Initial output:\n${output.slice(0, 2000)}`
+              : `✓ Started in background (no output yet). PID: ${proc.pid}`);
+          }
+        }, 8000);
+      });
     }
 
     case "install_packages": {
@@ -1235,6 +1335,30 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const model = (useCustomAI && customAI!.model) ? customAI!.model : platformModel;
   const usingCustomAI = useCustomAI;
 
+  // Pre-insert a placeholder so the message exists in DB from the start.
+  // We'll upsert with updated content after every iteration.
+  const aiMsgBase = {
+    id: aiMsgId,
+    projectId: req.params.projectId,
+    role: "assistant" as const,
+    content: "",
+    thinkingSteps: null as string[] | null,
+    attachmentUrl: null as null,
+    createdAt: new Date().toISOString(),
+  };
+  try { upsertRecord("messages", { ...aiMsgBase }); } catch {}
+
+  // Helper: persist current progress to messages.json after every iteration
+  const saveProgress = () => {
+    try {
+      upsertRecord("messages", {
+        ...aiMsgBase,
+        content: fullContent,
+        thinkingSteps: toolsUsed.length > 0 ? toolsUsed : null,
+      });
+    } catch {}
+  };
+
   sendEvent("ai_source", { source: usingCustomAI ? "custom" : "platform", model });
   const isThinkingModel = model.toLowerCase().includes("qwen") || model.toLowerCase().includes("deepseek-r") || model.toLowerCase().includes("qwq");
 
@@ -1431,6 +1555,9 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         }
       }
 
+      // Save progress to DB after every iteration — so content is never lost on disconnect
+      saveProgress();
+
       // Safety: if we're near the iteration limit and task_done not called, prompt to finish
       if (iterations >= MAX_ITERATIONS - 3 && !taskDoneCalled && continueLoop) {
         messages.push({
@@ -1462,10 +1589,9 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
       attachmentUrl: null,
       createdAt: new Date().toISOString(),
     };
-    // Always persist — even if client disconnected, save progress to DB
+    // Always persist — even if client disconnected, save progress to DB (upsert since placeholder was pre-inserted)
     try {
-      // Delete any partial record saved mid-stream, then insert final
-      insertRecord("messages", aiMsg);
+      upsertRecord("messages", aiMsg);
       updateRecord<any>("projects", req.params.projectId, { updatedAt: new Date().toISOString() });
       if (user) {
         updateRecord<User>("users", userId, { creditsUsed: (user.creditsUsed ?? 0) + 1 });
