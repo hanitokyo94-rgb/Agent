@@ -294,6 +294,9 @@ export function AgentChat() {
   });
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth < 768
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -376,6 +379,22 @@ export function AgentChat() {
           }
         } catch {}
       }
+
+      // Recover streamed tool events/notify banners from mid-stream disconnect
+      try {
+        const streamTe = localStorage.getItem(`te-stream-${projectId}`);
+        if (streamTe) {
+          const parsed = JSON.parse(streamTe) as Record<string, ToolEvent[]>;
+          setToolEvents((prev) => ({ ...parsed, ...prev }));
+          localStorage.removeItem(`te-stream-${projectId}`);
+        }
+        const streamNb = localStorage.getItem(`nb-stream-${projectId}`);
+        if (streamNb) {
+          const parsed = JSON.parse(streamNb) as Record<string, string[]>;
+          setNotifyBanners((prev) => ({ ...parsed, ...prev }));
+          localStorage.removeItem(`nb-stream-${projectId}`);
+        }
+      } catch {}
     }
   }, [savedMessages, isStreaming, projectId]);
 
@@ -418,6 +437,32 @@ export function AgentChat() {
       }
     }
   }, [projectId]);
+
+  // Mobile detection
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    setIsMobile(mq.matches);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  // Persist tool events + notify banners incrementally during streaming (recovery after disconnect)
+  useEffect(() => {
+    if (isStreaming && Object.keys(toolEvents).length > 0) {
+      try {
+        localStorage.setItem(`te-stream-${projectId}`, JSON.stringify(toolEvents));
+      } catch {}
+    }
+  }, [toolEvents, isStreaming, projectId]);
+
+  useEffect(() => {
+    if (isStreaming && Object.keys(notifyBanners).length > 0) {
+      try {
+        localStorage.setItem(`nb-stream-${projectId}`, JSON.stringify(notifyBanners));
+      } catch {}
+    }
+  }, [notifyBanners, isStreaming, projectId]);
 
   useEffect(() => { loadDeployInfo(); }, [projectId]);
   useEffect(() => { loadFiles(); }, [projectId]);
@@ -1486,12 +1531,11 @@ export function AgentChat() {
           </div>
         </div>
 
-        {/* App Browser Preview Panel */}
-        {showPreviewPanel && previewUrl && (
+        {/* App Browser Preview Panel — desktop side panel */}
+        {showPreviewPanel && previewUrl && !isMobile && (
           <div className="flex flex-col border-l border-border bg-background shrink-0 overflow-hidden" style={{ width: 520 }}>
             {/* Browser chrome */}
             <div className="flex items-center gap-1 px-2 h-10 bg-muted/50 border-b border-border shrink-0">
-              {/* Traffic lights */}
               <div className="flex items-center gap-1 mr-1">
                 <button
                   onClick={() => setShowPreviewPanel(false)}
@@ -1505,7 +1549,6 @@ export function AgentChat() {
                 <div className="w-3 h-3 rounded-full bg-yellow-400" />
                 <div className="w-3 h-3 rounded-full bg-green-400" />
               </div>
-              {/* Reload */}
               <button
                 onClick={() => setIframeKey((k) => k + 1)}
                 className="p-1 rounded-md hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
@@ -1515,7 +1558,6 @@ export function AgentChat() {
                   <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
                 </svg>
               </button>
-              {/* URL bar */}
               <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 mx-1 rounded-lg bg-background border border-border/70 text-[11px] text-muted-foreground font-mono truncate">
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-muted-foreground/60">
                   <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
@@ -1523,7 +1565,6 @@ export function AgentChat() {
                 </svg>
                 <span className="truncate">{typeof window !== "undefined" ? window.location.host : ""}{previewUrl}</span>
               </div>
-              {/* Open in new tab */}
               <a
                 href={previewUrl}
                 target="_blank"
@@ -1537,13 +1578,67 @@ export function AgentChat() {
                 </svg>
               </a>
             </div>
-            {/* iframe */}
             <iframe
               key={iframeKey}
               src={previewUrl}
               className="flex-1 w-full border-none bg-white"
               title="App Preview"
               sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox"
+            />
+          </div>
+        )}
+
+        {/* App Preview Modal — mobile/iOS full-screen modal */}
+        {showPreviewPanel && previewUrl && isMobile && (
+          <div className="fixed inset-0 z-[80] flex flex-col bg-background animate-in slide-in-from-bottom-4 duration-300">
+            {/* Mobile browser chrome */}
+            <div className="flex items-center gap-2 px-3 h-12 bg-muted/60 border-b border-border shrink-0 safe-area-top">
+              <button
+                onClick={() => setShowPreviewPanel(false)}
+                className="p-2 rounded-xl hover:bg-muted transition-colors text-muted-foreground"
+                title="Close preview"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+              <div className="flex-1 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border/70 text-[11px] text-muted-foreground font-mono truncate">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-muted-foreground/60">
+                  <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+                  <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+                </svg>
+                <span className="truncate">{previewUrl}</span>
+              </div>
+              <button
+                onClick={() => setIframeKey((k) => k + 1)}
+                className="p-2 rounded-xl hover:bg-muted transition-colors text-muted-foreground"
+                title="Reload"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+                </svg>
+              </button>
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-xl hover:bg-muted transition-colors text-muted-foreground"
+                title="Open in browser"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+              </a>
+            </div>
+            {/* iframe fills the screen */}
+            <iframe
+              key={iframeKey}
+              src={previewUrl}
+              className="flex-1 w-full border-none bg-white"
+              title="App Preview"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox"
+              allow="camera; microphone; geolocation"
             />
           </div>
         )}
