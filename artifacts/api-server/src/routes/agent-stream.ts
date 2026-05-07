@@ -15,6 +15,31 @@ import type { User } from "./auth.js";
 const execAsync = promisify(exec);
 const router = Router();
 
+// ── File-based agent logger ─────────────────────────────────────────────────
+const LOGS_DIR = path.resolve(process.cwd(), "../../agentdata/logs");
+
+function agentLog(
+  level: "INFO" | "WARN" | "ERROR",
+  projectId: string,
+  event: string,
+  data?: Record<string, unknown>
+) {
+  try {
+    fs.mkdirSync(LOGS_DIR, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    const logFile = path.join(LOGS_DIR, `agent-${today}.log`);
+    const entry =
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level,
+        projectId,
+        event,
+        ...(data ?? {}),
+      }) + "\n";
+    fs.appendFileSync(logFile, entry);
+  } catch {}
+}
+
 function getUserId(req: any): string | null {
   let userId = req.session?.userId;
   if (!userId) {
@@ -1094,6 +1119,13 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   sendEvent("ai_source", { source: usingCustomAI ? "custom" : "platform", model });
   const isThinkingModel = model.toLowerCase().includes("qwen") || model.toLowerCase().includes("deepseek-r") || model.toLowerCase().includes("qwq");
 
+  agentLog("INFO", req.params.projectId, "agent_start", {
+    model,
+    plan: (users[0] as any)?.plan ?? "free",
+    msgLen: content.length,
+    historyCount: allMsgs.length,
+  });
+
   try {
     let continueLoop = true;
     let iterations = 0;
@@ -1105,6 +1137,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
 
     while (continueLoop && iterations < MAX_ITERATIONS && !taskDoneCalled) {
       iterations++;
+      agentLog("INFO", req.params.projectId, "iteration_start", { iteration: iterations, maxIterations: MAX_ITERATIONS });
 
       // Prune tool messages if context is too large (keep last 40 messages)
       if (messages.length > 55) {
@@ -1197,12 +1230,20 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
         }
       } catch (streamErr: any) {
         // Stream error — save what we have and exit gracefully
+        agentLog("ERROR", req.params.projectId, "stream_error", { message: (streamErr as any)?.message, iteration: iterations });
         if (fullContent) {
           sendEvent("notify", { text: "Stream interrupted — saving progress..." });
         }
         continueLoop = false;
         break;
       }
+
+      agentLog("INFO", req.params.projectId, "finish_reason", {
+        iteration: iterations,
+        finishReason,
+        toolCallCount: toolCalls.length,
+        iterTextLen: iterText.length,
+      });
 
       // Push assistant turn
       messages.push({
@@ -1227,10 +1268,16 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
           let args: Record<string, any> = {};
           try { args = JSON.parse(tc.arguments || "{}"); } catch {}
 
+          agentLog("INFO", req.params.projectId, "tool_call", { name: tc.name, iteration: iterations });
           sendEvent("tool_call", { name: tc.name, args, status: "running" });
 
           const result = await executeTool(tc.name, args, req.params.projectId, sendEvent);
 
+          agentLog("INFO", req.params.projectId, "tool_result", {
+            name: tc.name,
+            resultLen: result.length,
+            success: !result.startsWith("❌"),
+          });
           sendEvent("tool_result", {
             name: tc.name,
             result: result.length > 3000 ? result.slice(0, 3000) + "\n...[truncated]" : result,
@@ -1244,6 +1291,11 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
           });
 
           if (tc.name === "task_done") {
+            agentLog("INFO", req.params.projectId, "task_done", {
+              iteration: iterations,
+              toolsUsed,
+              summary: (args.summary ?? "").toString().slice(0, 200),
+            });
             taskDoneCalled = true;
             continueLoop = false;
             break;
@@ -1252,8 +1304,10 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
       } else {
         // No tool calls — check finish reason
         if (finishReason === "stop" || finishReason === "end_turn" || finishReason === "length") {
+          agentLog("INFO", req.params.projectId, "loop_exit", { reason: `no_tools_finish_${finishReason}`, iteration: iterations });
           continueLoop = false;
         } else if (!finishReason) {
+          agentLog("WARN", req.params.projectId, "loop_exit", { reason: "no_tools_no_finish_reason", iteration: iterations });
           continueLoop = false;
         }
       }
@@ -1291,6 +1345,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
 
     sendEvent("done", aiMsg);
   } catch (err: any) {
+    agentLog("ERROR", req.params.projectId, "agent_failed", { message: (err as any)?.message });
     req.log?.error({ err }, "Agent stream failed");
     sendEvent("error", { message: err.message ?? "Agent error" });
   } finally {

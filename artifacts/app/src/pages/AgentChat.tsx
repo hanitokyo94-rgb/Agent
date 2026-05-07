@@ -347,6 +347,18 @@ export function AgentChat() {
             thinkingSteps: m.thinkingSteps, streaming: false, createdAt: m.createdAt,
           }));
         });
+        // Restore tool events, notify banners and expo snacks from localStorage for each message
+        const te: Record<string, { name: string; args?: any; status: string; result?: string }[]> = {};
+        const nb: Record<string, string[]> = {};
+        const es: Record<string, { url: string; qrUrl: string; snackId: string }> = {};
+        for (const m of savedMessages as any[]) {
+          try { const v = localStorage.getItem(`te-${projectId}-${m.id}`); if (v) te[m.id] = JSON.parse(v); } catch {}
+          try { const v = localStorage.getItem(`nb-${projectId}-${m.id}`); if (v) nb[m.id] = JSON.parse(v); } catch {}
+          try { const v = localStorage.getItem(`es-${projectId}-${m.id}`); if (v) es[m.id] = JSON.parse(v); } catch {}
+        }
+        if (Object.keys(te).length > 0) setToolEvents((prev) => ({ ...te, ...prev }));
+        if (Object.keys(nb).length > 0) setNotifyBanners((prev) => ({ ...nb, ...prev }));
+        if (Object.keys(es).length > 0) setExpoSnacks((prev) => ({ ...es, ...prev }));
       } else {
         try {
           const cached = localStorage.getItem(`chat-messages-${projectId}`);
@@ -727,13 +739,50 @@ export function AgentChat() {
                   break;
                 case "done":
                   if (data.role !== undefined) {
+                    const finalMsgId = data.id ?? aiMsgId;
                     setStreamingMessages((prev) =>
                       prev.map((m) =>
                         m.id === aiMsgId
-                          ? { ...m, id: data.id ?? aiMsgId, content: data.content ?? aiContent, streaming: false }
+                          ? { ...m, id: finalMsgId, content: data.content ?? aiContent, streaming: false }
                           : m
                       )
                     );
+                    // Re-key tool events to the server-assigned ID and persist to localStorage
+                    setToolEvents((prev) => {
+                      const next: typeof prev = {};
+                      for (const [k, v] of Object.entries(prev)) {
+                        next[k === aiMsgId ? finalMsgId : k] = v;
+                      }
+                      const events = prev[aiMsgId];
+                      if (events?.length) {
+                        try { localStorage.setItem(`te-${projectId}-${finalMsgId}`, JSON.stringify(events)); } catch {}
+                      }
+                      return next;
+                    });
+                    // Re-key notify banners and persist
+                    setNotifyBanners((prev) => {
+                      const next: typeof prev = {};
+                      for (const [k, v] of Object.entries(prev)) {
+                        next[k === aiMsgId ? finalMsgId : k] = v;
+                      }
+                      const banners = prev[aiMsgId];
+                      if (banners?.length) {
+                        try { localStorage.setItem(`nb-${projectId}-${finalMsgId}`, JSON.stringify(banners)); } catch {}
+                      }
+                      return next;
+                    });
+                    // Re-key expo snacks and persist
+                    setExpoSnacks((prev) => {
+                      const next: typeof prev = {};
+                      for (const [k, v] of Object.entries(prev)) {
+                        next[k === aiMsgId ? finalMsgId : k] = v;
+                      }
+                      const snack = prev[aiMsgId];
+                      if (snack) {
+                        try { localStorage.setItem(`es-${projectId}-${finalMsgId}`, JSON.stringify(snack)); } catch {}
+                      }
+                      return next;
+                    });
                   }
                   break;
               }

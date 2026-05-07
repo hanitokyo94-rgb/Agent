@@ -2,6 +2,8 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
+import path from "path";
+import fs from "fs";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { getUploadsDir } from "./lib/storage.js";
@@ -41,5 +43,23 @@ app.use(
 
 app.use("/api/uploads", express.static(getUploadsDir()));
 app.use("/api", router);
+
+// ── Fallback: serve built frontend in production, helpful message in dev ─────
+const frontendDist = path.resolve(process.cwd(), "../../app/dist");
+if (process.env.NODE_ENV === "production" && fs.existsSync(path.join(frontendDist, "index.html"))) {
+  app.use(express.static(frontendDist));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(frontendDist, "index.html"));
+  });
+} else {
+  app.get("/", (_req, res) => {
+    res.json({
+      status: "AI Builder API Server",
+      version: "1.0.0",
+      note: "The frontend runs on port 5000. Visit the preview URL to access the app.",
+      endpoints: ["/api/health", "/api/auth/login", "/api/projects"],
+    });
+  });
+}
 
 export default app;
