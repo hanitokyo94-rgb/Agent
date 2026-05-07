@@ -1159,10 +1159,15 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   (req.socket as any)?.setNoDelay?.(true);
   (req.socket as any)?.setKeepAlive?.(true, 10000);
 
-  // Send SSE keepalive ping every 10 seconds to prevent proxy/browser timeouts
+  // Track if client disconnected
+  let clientDisconnected = false;
+  req.on("close", () => { clientDisconnected = true; });
+  req.on("aborted", () => { clientDisconnected = true; });
+
+  // Send SSE keepalive ping every 5 seconds to prevent proxy/browser timeouts
   const keepAliveInterval = setInterval(() => {
-    try { res.write(": ping\n\n"); } catch { clearInterval(keepAliveInterval); }
-  }, 10000);
+    try { res.write(": ping\n\n"); } catch { clearInterval(keepAliveInterval); clientDisconnected = true; }
+  }, 5000);
 
   const sendEvent = (event: string, data: unknown) => {
     try {
@@ -1243,7 +1248,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
     const MAX_ITERATIONS = planPower[userPlanStr] ?? 30;
     let taskDoneCalled = false;
 
-    while (continueLoop && iterations < MAX_ITERATIONS && !taskDoneCalled) {
+    while (continueLoop && iterations < MAX_ITERATIONS && !taskDoneCalled && !clientDisconnected) {
       iterations++;
       agentLog("INFO", req.params.projectId, "iteration_start", { iteration: iterations, maxIterations: MAX_ITERATIONS });
 

@@ -907,6 +907,18 @@ export function AgentChat() {
     } finally {
       lastStreamEndRef.current = Date.now();
       setIsStreaming(false);
+      // Always finalize any message still marked as streaming — prevents disappearing on disconnect
+      setStreamingMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId && m.streaming
+            ? {
+                ...m,
+                streaming: false,
+                content: m.content || aiContent || "*(انقطع الاتصال — أعد الإرسال)*",
+              }
+            : m
+        )
+      );
       loadFiles();
       loadDeployInfo();
       queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(projectId) });
