@@ -303,17 +303,6 @@ export function Dashboard() {
               )}
             </div>
 
-            {/* Example chips */}
-            {mode === "new" && (
-              <div className="flex flex-wrap gap-2 justify-center mb-12">
-                {EXAMPLES.map((ex) => (
-                  <button key={ex} onClick={() => setDescription(ex)}
-                    className="text-[12px] px-3.5 py-1.5 rounded-full border border-border/60 bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                    {ex}
-                  </button>
-                ))}
-              </div>
-            )}
 
             {/* Recent Projects */}
             {projects.length > 0 && (

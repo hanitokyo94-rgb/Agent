@@ -10,6 +10,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
+    <script>
+      (function() {
+        var t = localStorage.getItem('theme') || 'system';
+        if (t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+        var fs = localStorage.getItem('font-size');
+        if (fs) {
+          var sizes = { Small: '13px', Medium: '15px', Large: '17px' };
+          document.documentElement.style.setProperty('--chat-font-size', sizes[fs] || '15px');
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

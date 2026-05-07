@@ -10,7 +10,7 @@ import {
 import { Sidebar } from "@/components/Sidebar";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "profile" | "subscription" | "appearance" | "shortcuts" | "ai" | "integrations";
+type SettingsTab = "profile" | "subscription" | "appearance" | "notifications" | "shortcuts" | "ai" | "integrations";
 
 const PLANS = [
   {
@@ -274,6 +274,49 @@ export function Settings() {
   const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
   const [connectorSaved, setConnectorSaved] = useState<string | null>(null);
 
+  // Appearance state
+  const [theme, setTheme] = useState<string>(() => localStorage.getItem("theme") ?? "system");
+  const [fontSize, setFontSize] = useState<string>(() => localStorage.getItem("font-size") ?? "Medium");
+
+  // Notifications state
+  const [notifications, setNotifications] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem("notifications-config");
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return { emailUpdates: true, emailFeatures: true, emailBilling: true, emailTips: false, emailPromo: false, pushEnabled: false };
+  });
+  const [notifSaved, setNotifSaved] = useState(false);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") root.classList.add("dark");
+    else if (theme === "light") root.classList.remove("dark");
+    else {
+      if (window.matchMedia("(prefers-color-scheme: dark)").matches) root.classList.add("dark");
+      else root.classList.remove("dark");
+    }
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const sizes: Record<string, string> = { Small: "13px", Medium: "15px", Large: "17px" };
+    document.documentElement.style.setProperty("--chat-font-size", sizes[fontSize] ?? "15px");
+    localStorage.setItem("font-size", fontSize);
+  }, [fontSize]);
+
+  function saveNotifications(updated: Record<string, boolean>) {
+    setNotifications(updated);
+    localStorage.setItem("notifications-config", JSON.stringify(updated));
+    setNotifSaved(true);
+    setTimeout(() => setNotifSaved(false), 2000);
+  }
+
+  function toggleNotif(key: string) {
+    const updated = { ...notifications, [key]: !notifications[key] };
+    saveNotifications(updated);
+  }
+
   async function handleSave() {
     const patch: { name?: string; language?: string } = {};
     if (displayName && displayName !== user?.name) patch.name = displayName;
@@ -398,6 +441,15 @@ export function Settings() {
       icon: (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 000 20z"/>
+        </svg>
+      ),
+    },
+    {
+      id: "notifications",
+      label: "Notifications",
+      icon: (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
         </svg>
       ),
     },
@@ -979,25 +1031,143 @@ export function Settings() {
                       { id: "dark", label: "Dark", bg: "bg-gray-900", border: "border-gray-700" },
                       { id: "system", label: "System", bg: "bg-gradient-to-br from-white to-gray-900", border: "border-gray-400" },
                     ].map((t) => (
-                      <button key={t.id} className="flex flex-col items-center gap-2.5 p-3 rounded-xl border-2 border-border hover:border-primary/40 transition-all active:scale-95">
+                      <button
+                        key={t.id}
+                        onClick={() => setTheme(t.id)}
+                        className={cn(
+                          "flex flex-col items-center gap-2.5 p-3 rounded-xl border-2 transition-all active:scale-95",
+                          theme === t.id
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/40"
+                        )}
+                      >
                         <div className={cn("w-full h-10 rounded-lg border", t.bg, t.border)} />
-                        <span className="text-xs font-medium">{t.label}</span>
+                        <span className={cn("text-xs font-medium", theme === t.id && "text-primary")}>{t.label}</span>
                       </button>
                     ))}
                   </div>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    {theme === "system" ? "Follows your device's display settings" : theme === "dark" ? "Dark mode is active" : "Light mode is active"}
+                  </p>
                 </div>
 
                 <div className="bg-card border border-border rounded-2xl p-5">
                   <p className="text-sm font-medium mb-4">Chat font size</p>
                   <div className="flex gap-2">
-                    {["Small", "Medium", "Large"].map((s, i) => (
-                      <button key={s} className={cn(
-                        "flex-1 py-2 rounded-xl text-sm border-2 transition-all active:scale-95",
-                        i === 1 ? "border-primary bg-primary/5 font-medium" : "border-border hover:border-primary/30"
-                      )}>{s}</button>
+                    {["Small", "Medium", "Large"].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setFontSize(s)}
+                        className={cn(
+                          "flex-1 py-2 rounded-xl border-2 transition-all active:scale-95",
+                          fontSize === s
+                            ? "border-primary bg-primary/5 text-primary font-medium text-sm"
+                            : "border-border hover:border-primary/30 text-sm"
+                        )}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">Changes the font size in the chat area</p>
+                </div>
+              </div>
+            )}
+
+            {/* ── Notifications Tab ── */}
+            {activeTab === "notifications" && (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-lg font-semibold mb-0.5">Notifications</h2>
+                  <p className="text-sm text-muted-foreground">Choose what you'd like to be notified about</p>
+                </div>
+
+                {/* Email notifications */}
+                <div className="bg-card border border-border rounded-2xl overflow-hidden">
+                  <div className="px-5 py-4 border-b border-border/50">
+                    <div className="flex items-center gap-2">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground">
+                        <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8l10 6 10-6"/>
+                      </svg>
+                      <p className="text-sm font-semibold">Email notifications</p>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-border/50">
+                    {[
+                      { key: "emailUpdates", label: "Platform updates", desc: "Important changes and new releases" },
+                      { key: "emailFeatures", label: "New features", desc: "Tips and what's new in AI Builder" },
+                      { key: "emailBilling", label: "Subscription & billing", desc: "Receipts, renewal reminders, and credit alerts" },
+                      { key: "emailTips", label: "Tips & tutorials", desc: "Guides to help you get more from the platform" },
+                      { key: "emailPromo", label: "Promotional emails", desc: "Special offers and discounts" },
+                    ].map(({ key, label, desc }) => (
+                      <div key={key} className="flex items-center justify-between px-5 py-4 gap-4">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{label}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                        </div>
+                        <button
+                          onClick={() => toggleNotif(key)}
+                          className={cn(
+                            "w-11 h-6 rounded-full transition-colors relative shrink-0",
+                            notifications[key] ? "bg-primary" : "bg-muted border border-border"
+                          )}
+                        >
+                          <div
+                            className="w-4 h-4 bg-white rounded-full absolute top-1 transition-transform shadow-sm"
+                            style={{ transform: notifications[key] ? "translateX(20px)" : "translateX(4px)" }}
+                          />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
+
+                {/* Push notifications */}
+                <div className="bg-card border border-border rounded-2xl overflow-hidden">
+                  <div className="px-5 py-4 border-b border-border/50">
+                    <div className="flex items-center gap-2">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground">
+                        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+                      </svg>
+                      <p className="text-sm font-semibold">Push notifications</p>
+                    </div>
+                  </div>
+                  <div className="px-5 py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium">Browser & mobile push</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Get notified when your agent finishes a task, even when the tab is in the background</p>
+                      </div>
+                      <button
+                        onClick={() => toggleNotif("pushEnabled")}
+                        className={cn(
+                          "w-11 h-6 rounded-full transition-colors relative shrink-0",
+                          notifications.pushEnabled ? "bg-primary" : "bg-muted border border-border"
+                        )}
+                      >
+                        <div
+                          className="w-4 h-4 bg-white rounded-full absolute top-1 transition-transform shadow-sm"
+                          style={{ transform: notifications.pushEnabled ? "translateX(20px)" : "translateX(4px)" }}
+                        />
+                      </button>
+                    </div>
+                    {notifications.pushEnabled && (
+                      <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-xl p-3">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 mt-0.5">
+                          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        Allow notifications in your browser settings to receive push alerts on this device.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {notifSaved && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-600 font-medium">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    Preferences saved
+                  </div>
+                )}
               </div>
             )}
 
