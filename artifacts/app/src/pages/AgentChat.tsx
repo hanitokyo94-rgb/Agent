@@ -914,6 +914,133 @@ function EmptyState({ projectName, onExample }: { projectName?: string; onExampl
   );
 }
 
+// ── Steps Summary Modal (Claude-style timeline) ───────────────────────
+function StepsSummaryModal({
+  tools, notifies, onClose, onOpenCode,
+}: {
+  tools: ToolEvent[];
+  notifies: string[];
+  onClose: () => void;
+  onOpenCode: (path: string, content: string) => void;
+}) {
+  const FILE_TOOL_NAMES = ["file_write", "file_str_replace", "file_delete", "file_read"];
+
+  // Build timeline items from notifies + all tool events
+  type TimelineItem =
+    | { kind: "notify"; text: string }
+    | { kind: "tool"; tool: ToolEvent; op: (FileOp & { isDone: boolean }) | null };
+
+  const items: TimelineItem[] = [];
+  for (const text of notifies) items.push({ kind: "notify", text });
+  for (const tool of tools) {
+    if (tool.name === "message_notify" || tool.name === "request_secret") continue;
+    const op = FILE_TOOL_NAMES.includes(tool.name)
+      ? (() => { const o = getFileOp(tool); return o ? { ...o, isDone: tool.status === "done" } : null; })()
+      : null;
+    items.push({ kind: "tool", tool, op });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-background w-full sm:max-w-md max-h-[75dvh] rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
+          <div className="w-10 h-1 bg-muted-foreground/25 rounded-full" />
+        </div>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 shrink-0">
+          <h3 className="font-semibold text-sm text-foreground">Summary</h3>
+          <button onClick={onClose} className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        {/* Timeline */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="relative">
+            {/* Vertical connector line */}
+            <div className="absolute left-[9px] top-3 bottom-3 w-px bg-border/60" />
+            <div className="space-y-0">
+              {items.map((item, i) => {
+                const isLast = i === items.length - 1;
+                if (item.kind === "notify") {
+                  return (
+                    <div key={i} className="flex items-start gap-3 py-2.5">
+                      <div className="shrink-0 w-[18px] h-[18px] rounded-full border-2 border-border bg-background mt-0.5 flex items-center justify-center">
+                        <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
+                      </div>
+                      <p className="text-sm text-muted-foreground leading-snug pt-0.5">{item.text}</p>
+                    </div>
+                  );
+                }
+                const { tool, op } = item;
+                const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
+                const isRunning = tool.status === "running";
+                const isFile = op !== null;
+                const title = isFile
+                  ? `${cfg.label} ${shortFilename(op!.file)}`
+                  : cfg.label;
+                const detail = tool.args.command
+                  ? String(tool.args.command).slice(0, 80)
+                  : tool.args.url
+                  ? tool.args.url
+                  : tool.args.query
+                  ? tool.args.query
+                  : null;
+
+                return (
+                  <div key={i} className="flex items-start gap-3 py-2.5">
+                    {/* Icon node */}
+                    <div className={cn(
+                      "shrink-0 w-[18px] h-[18px] rounded-sm border bg-background mt-0.5 flex items-center justify-center text-[10px]",
+                      isRunning ? "border-primary animate-pulse" : "border-border/70"
+                    )}>
+                      {isRunning
+                        ? <svg className="animate-spin w-2.5 h-2.5 text-primary" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        : <span>{cfg.icon}</span>
+                      }
+                    </div>
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      {isFile && op?.content && op.isDone ? (
+                        <button
+                          onClick={() => { onOpenCode(op!.file, op!.content!); onClose(); }}
+                          className="text-sm font-medium text-foreground hover:text-primary transition-colors text-left leading-snug"
+                        >
+                          {title}
+                        </button>
+                      ) : (
+                        <p className={cn("text-sm font-medium leading-snug", isRunning ? "text-primary" : "text-foreground")}>
+                          {title}
+                        </p>
+                      )}
+                      {detail && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate font-mono">{detail}</p>
+                      )}
+                      {isFile && op && (
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {op.added > 0 && <span className="text-[11px] text-emerald-600 font-medium">+{op.added} lines</span>}
+                          {op.removed > 0 && <span className="text-[11px] text-destructive font-medium">-{op.removed} lines</span>}
+                          {op.type === "delete" && <span className="text-[11px] text-destructive font-medium">deleted</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {items.length === 0 && (
+                <p className="text-sm text-muted-foreground py-4 text-center">No steps recorded.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Message bubble ───────────────────────────────────────────────────
 function MessageBubble({
   msg, tools, notifies, onOpenCode,
@@ -924,22 +1051,23 @@ function MessageBubble({
   onOpenCode: (path: string, content: string) => void;
 }) {
   const [stepsOpen, setStepsOpen] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
 
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] space-y-2">
+        <div className="max-w-[82%] space-y-2">
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 justify-end">
               {msg.attachments.map((a, i) => (
                 <div key={i} className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-muted text-xs border border-border">
                   <span>{a.type.startsWith("image/") ? "🖼️" : "📎"}</span>
-                  <span>{a.name}</span>
+                  <span className="max-w-[140px] truncate">{a.name}</span>
                 </div>
               ))}
             </div>
           )}
-          <div className="bg-muted/60 border border-border/50 px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+          <div className="bg-muted/70 border border-border/40 px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed text-foreground whitespace-pre-wrap">
             {msg.content}
           </div>
         </div>
@@ -947,127 +1075,140 @@ function MessageBubble({
     );
   }
 
-  // Assistant message
+  // ── Assistant message ──
   const FILE_TOOL_NAMES = ["file_write", "file_str_replace", "file_delete", "file_read"];
-  const visibleTools = tools.filter((t) => t.name !== "message_notify" && t.name !== "task_done" && t.name !== "request_secret");
+  const visibleTools = tools.filter(
+    (t) => t.name !== "message_notify" && t.name !== "task_done" && t.name !== "request_secret"
+  );
   const fileTools = visibleTools.filter((t) => FILE_TOOL_NAMES.includes(t.name));
-  const fileOps = fileTools.map((t) => {
-    const op = getFileOp(t);
-    return op ? { ...op, isDone: t.status === "done" } : null;
-  }).filter(Boolean) as Array<FileOp & { isDone: boolean }>;
-  const nonFileTools = visibleTools.filter((t) => !FILE_TOOL_NAMES.includes(t.name));
+  const fileOps = fileTools
+    .map((t) => { const op = getFileOp(t); return op ? { ...op, isDone: t.status === "done" } : null; })
+    .filter(Boolean) as Array<FileOp & { isDone: boolean }>;
   const deployResult = tools.find((t) => t.name === "deploy_to_vercel" && t.status === "done");
   const liveUrl = deployResult ? extractUrl(deployResult.result ?? "") : null;
-  const runningTools = visibleTools.filter((t) => t.status === "running");
+  const runningTool = visibleTools.find((t) => t.status === "running");
+  const totalSteps = visibleTools.length + notifies.length;
+  const hasSteps = totalSteps > 0;
+
+  // Last notify as the "thinking" label
+  const lastNotify = notifies[notifies.length - 1];
+  const runningLabel = runningTool
+    ? `${TOOL_CONFIG[runningTool.name]?.label ?? runningTool.name}${runningTool.args.file ? ` — ${shortFilename(runningTool.args.file)}` : runningTool.args.command ? ` — ${String(runningTool.args.command).slice(0, 40)}` : ""}`
+    : lastNotify ?? null;
 
   return (
-    <div className="space-y-3">
-      {/* Notifications */}
-      {notifies.map((text, i) => (
-        <div key={i} className="flex items-start gap-2.5 py-1.5 px-3 rounded-xl bg-primary/5 border border-primary/10 text-sm text-foreground/80">
-          <span className="text-primary text-xs font-mono mt-0.5 shrink-0">›</span>
-          <span className="leading-relaxed">{text}</span>
-        </div>
-      ))}
+    <div className="space-y-2.5">
 
-      {/* Tool steps */}
-      {visibleTools.length > 0 && (
-        <div className="space-y-2">
-          {/* Currently running */}
-          {runningTools.length > 0 && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-              <div className="flex gap-0.5 shrink-0">
-                <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: "120ms" }} />
-                <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: "240ms" }} />
+      {/* ── Claude-style thinking row ── */}
+      {hasSteps && (
+        <div className="space-y-1.5">
+          {/* Active running indicator */}
+          {runningTool && (
+            <div className="flex items-center gap-2 text-[13px] text-muted-foreground select-none">
+              <div className="flex gap-[3px] shrink-0">
+                <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "120ms" }} />
+                <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "240ms" }} />
               </div>
-              <span>
-                {TOOL_CONFIG[runningTools[0].name]?.label ?? runningTools[0].name}
-                {runningTools[0].args.file ? ` ${shortFilename(runningTools[0].args.file)}` : ""}
-                {runningTools[0].args.command ? ` — ${String(runningTools[0].args.command).slice(0, 50)}` : ""}
-              </span>
+              <span className="truncate max-w-[340px]">{runningLabel}</span>
             </div>
           )}
 
-          {/* File operation chips */}
-          {fileOps.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {fileOps.map((op, i) => (
-                <button
-                  key={`${op.file}-${i}`}
-                  onClick={() => op.content && op.isDone ? onOpenCode(op.file, op.content) : undefined}
-                  className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono border transition-colors",
-                    op.isDone
-                      ? "bg-muted/60 border-border/50 hover:bg-muted cursor-pointer"
-                      : "bg-muted/30 border-border/30 opacity-60 cursor-default",
-                  )}
-                >
-                  <span className="text-[10px] opacity-60">{fileTypeIcon(op.file)}</span>
-                  <span className="text-foreground/80 max-w-[140px] truncate">{shortFilename(op.file)}</span>
-                  {op.type === "delete" ? (
-                    <span className="text-destructive font-medium text-[10px]">del</span>
-                  ) : (
-                    <>
-                      {op.added > 0 && <span className="text-emerald-500 font-medium">+{op.added}</span>}
-                      {op.removed > 0 && <span className="text-destructive font-medium">-{op.removed}</span>}
-                    </>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Non-file tools */}
-          {nonFileTools.length > 0 && (
+          {/* Collapsible summary trigger (Claude style: "> text") */}
+          {!runningTool && totalSteps > 0 && (
             <button
               onClick={() => setStepsOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground transition-colors group"
             >
-              <div className="flex items-center -space-x-0.5">
-                {[...new Set(nonFileTools.map((t) => t.name))].slice(0, 3).map((name, i) => (
-                  <span key={i} className="text-sm">{TOOL_CONFIG[name]?.icon ?? "🔧"}</span>
-                ))}
-              </div>
-              <span className="font-mono text-[11px]">
-                {nonFileTools.filter((t) => t.status === "running").length > 0
-                  ? `${nonFileTools.filter((t) => t.status === "running").length} running...`
-                  : `${nonFileTools.length} step${nonFileTools.length !== 1 ? "s" : ""}`}
-              </span>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                className={cn("transition-transform", stepsOpen ? "rotate-180" : "")}>
-                <polyline points="6 9 12 15 18 9"/>
+              <svg
+                width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                className={cn("transition-transform shrink-0 text-muted-foreground/60 group-hover:text-muted-foreground", stepsOpen ? "rotate-90" : "")}
+              >
+                <polyline points="9 18 15 12 9 6"/>
               </svg>
+              <span className="truncate max-w-[340px]">
+                {lastNotify ?? `${totalSteps} step${totalSteps !== 1 ? "s" : ""} taken`}
+              </span>
             </button>
           )}
 
-          {stepsOpen && nonFileTools.length > 0 && (
-            <div className="space-y-1 pl-3 border-l-2 border-border/40 ml-1">
-              {nonFileTools.map((tool, i) => {
-                const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
-                return (
-                  <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground py-0.5">
-                    {tool.status === "running"
-                      ? <svg className="animate-spin w-3 h-3 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                      : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-500 shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-                    }
-                    <div className="min-w-0">
-                      <span className="font-mono">{cfg.icon} {cfg.label}</span>
-                      {tool.args.command && <code className="block opacity-50 truncate max-w-[220px] mt-0.5">{String(tool.args.command).slice(0, 80)}</code>}
-                      {tool.args.url && <code className="block opacity-50 truncate max-w-[220px] mt-0.5">{tool.args.url}</code>}
-                      {tool.args.query && <code className="block opacity-50 truncate max-w-[220px] mt-0.5">{tool.args.query}</code>}
-                    </div>
+          {/* Expanded inline steps list */}
+          {stepsOpen && !runningTool && (
+            <div className="ml-[22px] border border-border/50 rounded-xl overflow-hidden bg-muted/20">
+              <div className="px-4 py-3 space-y-2.5">
+                {notifies.map((text, i) => (
+                  <div key={`n-${i}`} className="flex items-start gap-2.5">
+                    <div className="shrink-0 w-2 h-2 rounded-full bg-muted-foreground/30 mt-1.5" />
+                    <span className="text-xs text-muted-foreground leading-relaxed">{text}</span>
                   </div>
-                );
-              })}
+                ))}
+                {visibleTools.map((tool, i) => {
+                  const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
+                  const op = FILE_TOOL_NAMES.includes(tool.name) ? getFileOp(tool) : null;
+                  const title = op ? `${cfg.label} ${shortFilename(op.file)}` : cfg.label;
+                  return (
+                    <div key={`t-${i}`} className="flex items-start gap-2.5">
+                      <span className="shrink-0 w-[18px] h-[18px] rounded-sm border border-border/60 bg-background text-[10px] flex items-center justify-center mt-0.5">
+                        {cfg.icon}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium text-foreground leading-snug">{title}</p>
+                        {(tool.args.command || tool.args.url || tool.args.query) && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate font-mono max-w-[240px]">
+                            {tool.args.command ?? tool.args.url ?? tool.args.query}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {totalSteps > 2 && (
+                <button
+                  onClick={() => setShowSummary(true)}
+                  className="w-full text-[12px] text-primary/80 hover:text-primary px-4 py-2 border-t border-border/40 text-center transition-colors hover:bg-muted/30"
+                >
+                  View full summary →
+                </button>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* Live deploy card */}
+      {/* ── File operation chips ── */}
+      {fileOps.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {fileOps.map((op, i) => (
+            <button
+              key={`${op.file}-${i}`}
+              onClick={() => op.content && op.isDone ? onOpenCode(op.file, op.content) : undefined}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border transition-colors",
+                op.isDone
+                  ? "bg-background border-border/60 hover:bg-muted cursor-pointer shadow-sm"
+                  : "bg-muted/30 border-border/30 opacity-50 cursor-default",
+              )}
+            >
+              <span className="text-[10px] opacity-70">{fileTypeIcon(op.file)}</span>
+              <span className="text-foreground/80 max-w-[130px] truncate">{shortFilename(op.file)}</span>
+              {op.type === "delete" ? (
+                <span className="text-destructive font-medium text-[10px] ml-0.5">del</span>
+              ) : (
+                <span className="text-muted-foreground/60 text-[10px] ml-0.5">
+                  {op.added > 0 && <span className="text-emerald-600">+{op.added}</span>}
+                  {op.added > 0 && op.removed > 0 && " "}
+                  {op.removed > 0 && <span className="text-rose-500">-{op.removed}</span>}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Live deploy card ── */}
       {liveUrl && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/50">
           <span className="text-xl shrink-0">🚀</span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Deployed!</p>
@@ -1079,7 +1220,7 @@ function MessageBubble({
         </div>
       )}
 
-      {/* Message content */}
+      {/* ── Message content ── */}
       {(msg.content || (msg.streaming && !msg.content)) && (
         <div className="text-sm leading-relaxed text-foreground">
           {msg.content ? (
@@ -1090,13 +1231,23 @@ function MessageBubble({
               )}
             </>
           ) : msg.streaming ? (
-            <div className="flex gap-1 py-1">
-              <span className="w-2 h-2 rounded-full bg-foreground/20 animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-2 h-2 rounded-full bg-foreground/20 animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-2 h-2 rounded-full bg-foreground/20 animate-bounce" style={{ animationDelay: "300ms" }} />
+            <div className="flex gap-1.5 py-1">
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "300ms" }} />
             </div>
           ) : null}
         </div>
+      )}
+
+      {/* ── Summary Modal ── */}
+      {showSummary && (
+        <StepsSummaryModal
+          tools={visibleTools}
+          notifies={notifies}
+          onClose={() => setShowSummary(false)}
+          onOpenCode={onOpenCode}
+        />
       )}
     </div>
   );

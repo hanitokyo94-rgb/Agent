@@ -1,0 +1,36 @@
+[
+  {
+    "id": "d2782207-32a3-40e6-8f98-b2865e927393",
+    "name": "Hani",
+    "email": "assiabechrir0@gmail.com",
+    "passwordHash": "$2b$10$vr8aKs8AzM/RI9eDlL.UrOLVmU2uOyXqd/N.wkmthWJ7iWM5tvg8C",
+    "avatar": null,
+    "onboardingCompleted": true,
+    "skillLevel": "advanced",
+    "category": "tools",
+    "adSource": "other",
+    "country": "DZ",
+    "language": "en",
+    "credits": 20,
+    "creditsUsed": 1,
+    "plan": "free",
+    "createdAt": "2026-05-07T01:20:59.185Z"
+  },
+  {
+    "id": "b1c04254-75c4-47c1-a5ce-04f31f324ec3",
+    "name": "Demo",
+    "email": "demo2@test.com",
+    "passwordHash": "$2b$10$Hp5hjjJblbQcziXAUibWeeXmJPTcNtb0.4NFubDyfwVbExUnYRVt6",
+    "avatar": null,
+    "onboardingCompleted": false,
+    "skillLevel": null,
+    "category": null,
+    "adSource": null,
+    "country": null,
+    "language": null,
+    "credits": 20,
+    "creditsUsed": 0,
+    "plan": "free",
+    "createdAt": "2026-05-07T01:27:12.204Z"
+  }
+]

@@ -9,6 +9,8 @@ import workspaceRouter from "./workspace.js";
 import agentStreamRouter from "./agent-stream.js";
 import deployRouter from "./deploy.js";
 import githubImportRouter from "./github-import.js";
+import boboAuthRouter from "./bobo-auth.js";
+import boboDataRouter from "./bobo-data.js";
 
 const router: IRouter = Router();
 
@@ -22,5 +24,7 @@ router.use(workspaceRouter);
 router.use(agentStreamRouter);
 router.use(deployRouter);
 router.use(githubImportRouter);
+router.use(boboAuthRouter);
+router.use(boboDataRouter);
 
 export default router;

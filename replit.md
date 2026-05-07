@@ -43,7 +43,9 @@ Required env vars:
 - SSE events: `chunk`, `notify`, `task_done`, `tool_call`, `tool_result`, `deploy_done`, `request_secret`, `done`, `error`
 - Background task persistence via localStorage (`agent-pending-{projectId}`) — survives refresh
 - File diff chips show `+added -removed` line counts; clickable to open code view modal
-- Secret request UI: agent calls `request_secret` tool → frontend shows inline amber banner
+- Vite dev server proxies `/api` → `http://localhost:8080` (API server port)
+- **Bobo Auth** (`/api/bobo/auth/*`) and **Bobo Data** (`/api/bobo/data/*`) — hosted remote auth + key-value store for agent-built projects; auth header = `Bearer <projectId>`; data stored at `agentdata/projects/{id}/.bobo/`
+- Chat UI: Claude-style collapsible thinking row (`>` chevron) with inline steps list + Summary bottom-sheet modal
 
 ## Product
 

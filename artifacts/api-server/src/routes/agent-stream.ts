@@ -259,7 +259,7 @@ const AGENT_TOOLS = [
   },
 ];
 
-function getSystemPrompt(lang: string | null | undefined, workspaceFileCount: number): string {
+function getSystemPrompt(lang: string | null | undefined, workspaceFileCount: number, platformUrl?: string): string {
   const isArabic = lang === "ar" || lang?.startsWith("ar");
   const filesContext = workspaceFileCount > 0
     ? `\n[Workspace: ${workspaceFileCount} files currently in project]`
@@ -340,7 +340,82 @@ You operate iteratively:
 - Never stop mid-task without explanation — always call task_done
 - Match user language (Arabic/English)
 - Be concise in updates, thorough in final results
-</critical_rules>`;
+</critical_rules>
+
+<bobo_services>
+## Bobo Auth — Remote Authentication (USE THIS for all projects needing user login)
+
+The platform provides a hosted auth service. Your built projects can call these APIs from anywhere (Vercel, etc.) by setting BOBO_PROJECT_KEY to the project ID.
+
+### Setup in your project:
+\`\`\`env
+BOBO_PROJECT_KEY=<projectId>
+BOBO_API_URL=${platformUrl ?? "https://your-platform-url.repl.co"}
+\`\`\`
+
+### Bobo Auth API calls (add to your backend):
+\`\`\`typescript
+const BOBO_URL = process.env.BOBO_API_URL;
+const BOBO_KEY = process.env.BOBO_PROJECT_KEY;
+const headers = { "Content-Type": "application/json", "Authorization": \`Bearer \${BOBO_KEY}\` };
+
+// Register a user
+const res = await fetch(\`\${BOBO_URL}/api/bobo/auth/register\`, {
+  method: "POST", headers,
+  body: JSON.stringify({ email, password, name })
+});
+const { user, token } = await res.json();
+
+// Login
+const res = await fetch(\`\${BOBO_URL}/api/bobo/auth/login\`, {
+  method: "POST", headers,
+  body: JSON.stringify({ email, password })
+});
+const { user, token } = await res.json();
+
+// Verify token (call from middleware)
+const res = await fetch(\`\${BOBO_URL}/api/bobo/auth/verify\`, {
+  headers: { "Authorization": \`Bearer \${userJwtToken}\` }
+});
+const { user, valid } = await res.json();
+\`\`\`
+
+## Bobo Data — Remote Key-Value Storage (USE THIS for all projects needing data persistence)
+
+\`\`\`typescript
+const BOBO_URL = process.env.BOBO_API_URL;
+const BOBO_KEY = process.env.BOBO_PROJECT_KEY;
+const headers = { "Content-Type": "application/json", "Authorization": \`Bearer \${BOBO_KEY}\` };
+
+// Save data (value can be any JSON — string, number, object, array)
+await fetch(\`\${BOBO_URL}/api/bobo/data/set\`, {
+  method: "POST", headers,
+  body: JSON.stringify({ key: "users:123", value: { name: "Ali", email: "ali@x.com" } })
+});
+
+// Get data
+const res = await fetch(\`\${BOBO_URL}/api/bobo/data/get?key=users:123\`, { headers });
+const { value } = await res.json();
+
+// List all keys (optional prefix filter)
+const res = await fetch(\`\${BOBO_URL}/api/bobo/data/list?prefix=users:\`, { headers });
+const { items } = await res.json(); // [{ key, value }, ...]
+
+// Delete a key
+await fetch(\`\${BOBO_URL}/api/bobo/data/delete?key=users:123\`, { method: "DELETE", headers });
+\`\`\`
+
+### Key naming conventions:
+- users:{id} → user profiles
+- tasks:{userId}:{id} → todo items  
+- posts:{id} → blog posts
+- settings:{userId} → user settings
+- counter:{name} → counters
+
+IMPORTANT: ALWAYS use Bobo Auth + Bobo Data in projects that need auth or storage. 
+Set the environment variables using set_secret tool and use them in .env files.
+Get the project's BOBO_PROJECT_KEY with get_secrets (it equals the projectId, visible in logs).
+</bobo_services>`;
 
   if (isArabic) {
     return basePrompt + `
@@ -652,8 +727,10 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   // Build initial messages — use last 20 for context
   const historyMessages = allMsgs.slice(-20).map((m: any) => ({ role: m.role, content: m.content }));
 
+  const platformUrl = process.env.PLATFORM_URL ?? `https://${req.headers.host}`;
+
   const messages: any[] = [
-    { role: "system", content: getSystemPrompt(user?.language, wsFiles.length) },
+    { role: "system", content: getSystemPrompt(user?.language, wsFiles.length, platformUrl) },
     ...historyMessages,
   ];
 
