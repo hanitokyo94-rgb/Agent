@@ -594,7 +594,31 @@ BOBO_PROJECT_KEY=<projectId>
 BOBO_API_URL=${platformUrl ?? "https://your-platform-url.repl.co"}
 \`\`\`
 
-### Bobo Auth API calls (add to your backend):
+### Option A — Hosted Login Page (RECOMMENDED, zero backend needed)
+Instead of building your own login form, redirect users to the platform's hosted login page:
+\`\`\`
+${platformUrl ?? "https://your-platform-url.repl.co"}/bobo-auth?project=<BOBO_PROJECT_KEY>&callback=<YOUR_APP_URL/auth/callback>&mode=login
+\`\`\`
+After the user logs in, they are redirected to \`callback?bobo_token=<jwt>\`. Your frontend reads the token from the URL and calls \`/api/bobo/auth/verify\` to get the user.
+
+Example redirect (in your React/Next app):
+\`\`\`typescript
+const BOBO_URL = process.env.VITE_BOBO_API_URL ?? process.env.NEXT_PUBLIC_BOBO_API_URL;
+const BOBO_KEY = process.env.VITE_BOBO_PROJECT_KEY ?? process.env.NEXT_PUBLIC_BOBO_PROJECT_KEY;
+const loginUrl = \`\${BOBO_URL}/bobo-auth?project=\${BOBO_KEY}&callback=\${encodeURIComponent(window.location.origin + "/auth/callback")}&mode=login\`;
+window.location.href = loginUrl;
+\`\`\`
+Callback handler (reads bobo_token from URL, verifies it):
+\`\`\`typescript
+const token = new URLSearchParams(window.location.search).get("bobo_token");
+const res = await fetch(\`\${BOBO_URL}/api/bobo/auth/verify\`, {
+  headers: { Authorization: \`Bearer \${token}\` }
+});
+const { user, valid } = await res.json();
+if (valid) { /* save token, mark user as logged in */ }
+\`\`\`
+
+### Option B — Custom Auth (build your own form, call Bobo APIs directly)
 \`\`\`typescript
 const BOBO_URL = process.env.BOBO_API_URL;
 const BOBO_KEY = process.env.BOBO_PROJECT_KEY;
@@ -1051,12 +1075,22 @@ async function executeTool(
       if (!token) return "❌ VERCEL_TOKEN not configured. Use request_secret to ask the user for it.";
       try {
         const project = findById<any>("projects", projectId);
+        // Auto-inject Bobo platform keys so deployed projects can use Bobo Auth + Data
+        const platformUrl = process.env.PLATFORM_URL ?? `https://${process.env.REPL_SLUG ?? "platform"}.replit.app`;
+        const deploySecrets = {
+          ...secrets,
+          BOBO_PROJECT_KEY: projectId,
+          BOBO_API_URL: platformUrl,
+          VITE_BOBO_PROJECT_KEY: projectId,
+          VITE_BOBO_API_URL: platformUrl,
+        };
+        sendEvent("notify", { text: "Injecting Bobo Auth + Data keys into deployment..." });
         const result = await deployToVercel(
           token,
           wsDir,
           project?.name ?? "ai-project",
           project?.vercelProjectId,
-          secrets
+          deploySecrets
         );
         updateRecord("projects", projectId, {
           vercelUrl: result.url,
@@ -1320,7 +1354,11 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   );
 
   // Build initial messages — use last 20 for context
-  const historyMessages = allMsgs.slice(-20).map((m: any) => ({ role: m.role, content: m.content }));
+  // Filter out empty/placeholder messages to avoid confusing the AI on first message
+  const historyMessages = allMsgs
+    .filter((m: any) => m.content && m.content.trim().length > 0)
+    .slice(-20)
+    .map((m: any) => ({ role: m.role, content: m.content }));
 
   const platformUrl = process.env.PLATFORM_URL ?? `https://${req.headers.host}`;
 

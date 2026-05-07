@@ -12,6 +12,7 @@ import { AgentChat } from "./pages/AgentChat";
 import { Settings } from "./pages/Settings";
 import { Admin } from "./pages/Admin";
 import { Templates } from "./pages/Templates";
+import { BoboAuth } from "./pages/BoboAuth";
 import NotFound from "@/pages/not-found";
 
 // Set token getter from localStorage
@@ -69,6 +70,7 @@ function Router() {
       <Route path="/settings" component={() => <ProtectedRoute component={Settings} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={Admin} />} />
       <Route path="/templates" component={() => <ProtectedRoute component={Templates} />} />
+      <Route path="/bobo-auth" component={BoboAuth} />
       <Route component={NotFound} />
     </Switch>
   );

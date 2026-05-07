@@ -172,4 +172,56 @@ router.post("/projects/:projectId/upload", upload.single("file"), async (req, re
   res.json({ url });
 });
 
+// GET /api/projects/:projectId/bobo/stats — Bobo DB stats for the UI modal (user auth)
+router.get("/projects/:projectId/bobo/stats", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+  const project = findById<Project>("projects", req.params.projectId);
+  if (!project || project.userId !== userId) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+  try {
+    const fsMod = (await import("fs")).default;
+    const pathMod = (await import("path")).default;
+    const WORKSPACES_DIR = process.env.WORKSPACES_DIR ?? pathMod.resolve(process.cwd(), "../../agentdata/projects");
+    const boboDataPath = pathMod.join(WORKSPACES_DIR, req.params.projectId, ".bobo", "data.json");
+    const boboAuthPath = pathMod.join(WORKSPACES_DIR, req.params.projectId, ".bobo", "users.json");
+
+    let keyCount = 0;
+    let usedBytes = 0;
+    let items: Array<{ key: string; type: string; size: number }> = [];
+    let userCount = 0;
+
+    if (fsMod.existsSync(boboDataPath)) {
+      const stat = fsMod.statSync(boboDataPath);
+      usedBytes = stat.size;
+      const data = JSON.parse(fsMod.readFileSync(boboDataPath, "utf-8"));
+      keyCount = Object.keys(data).length;
+      items = Object.entries(data).slice(0, 50).map(([key, value]) => ({
+        key,
+        type: Array.isArray(value) ? "array" : typeof value,
+        size: JSON.stringify(value).length,
+      }));
+    }
+
+    if (fsMod.existsSync(boboAuthPath)) {
+      const users = JSON.parse(fsMod.readFileSync(boboAuthPath, "utf-8"));
+      userCount = Array.isArray(users) ? users.length : Object.keys(users).length;
+    }
+
+    res.json({
+      keyCount,
+      userCount,
+      usedBytes,
+      usedKB: Math.round(usedBytes / 1024 * 10) / 10,
+      maxBytes: 100 * 1024 * 1024,
+      maxMB: 100,
+      items,
+    });
+  } catch (err) {
+    res.json({ keyCount: 0, userCount: 0, usedBytes: 0, usedKB: 0, maxBytes: 100 * 1024 * 1024, maxMB: 100, items: [] });
+  }
+});
+
 export default router;

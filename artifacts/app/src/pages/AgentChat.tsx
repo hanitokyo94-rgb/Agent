@@ -284,6 +284,8 @@ export function AgentChat() {
   const [githubCommitMsg, setGithubCommitMsg] = useState("");
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [aiSourceLabel, setAiSourceLabel] = useState<string | null>(null);
+  const [showBoboDB, setShowBoboDB] = useState(false);
+  const [projectRunningUrl, setProjectRunningUrl] = useState<string | null>(null);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionCursorInfo, setMentionCursorInfo] = useState<{ start: number; end: number } | null>(null);
@@ -815,6 +817,7 @@ export function AgentChat() {
                   setPreviewUrl(data.url);
                   setShowPreviewPanel(true);
                   setIframeKey((k) => k + 1);
+                  setProjectRunningUrl(data.url);
                   try { localStorage.setItem(`preview-url-${projectId}`, data.url); } catch {}
                   break;
                 case "expo_snack":
@@ -1020,11 +1023,8 @@ export function AgentChat() {
           <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
         </svg>
       ),
-      onClick: () => {
-        setInput("Set up Databobo database integration for this project");
-        setShowMenu(false);
-      },
-      badge: "100MB",
+      onClick: () => { setShowBoboDB(true); setShowMenu(false); },
+      badge: "DB",
     },
     {
       label: "Authbobo",
@@ -1161,6 +1161,13 @@ export function AgentChat() {
 
               {aiSourceLabel && connectionStatus === "streaming" && (
                 <span className="hidden md:inline text-[10px] text-muted-foreground/60 font-mono">{aiSourceLabel}</span>
+              )}
+
+              {projectRunningUrl && !isStreaming && (
+                <span className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  Running
+                </span>
               )}
 
               {previewUrl && (
@@ -1687,6 +1694,14 @@ export function AgentChat() {
           onAdd={addUserSkill}
           onDelete={deleteUserSkill}
           onClose={() => setShowSkillsManager(false)}
+        />
+      )}
+
+      {showBoboDB && (
+        <BoboDatabaseModal
+          projectId={projectId}
+          onAsk={(q) => { setInput(q); setShowBoboDB(false); }}
+          onClose={() => setShowBoboDB(false)}
         />
       )}
 
@@ -2347,88 +2362,94 @@ function MessageBubble({
   return (
     <div className="space-y-2.5">
 
-      {/* ── Claude-style thinking row ── */}
+      {/* ── Steps Row ── */}
       {hasSteps && (
-        <div className="space-y-1.5">
-          {/* Active running indicator */}
+        <div className="space-y-1">
+          {/* Active running: bouncing dots + label */}
           {runningTool && (
-            <div className="flex items-center gap-2 text-[13px] text-muted-foreground select-none">
+            <div className="flex items-center gap-2 text-[12px] text-muted-foreground/70 select-none">
               <div className="flex gap-[3px] shrink-0">
-                <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "120ms" }} />
-                <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "240ms" }} />
+                <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "100ms" }} />
+                <span className="w-[4px] h-[4px] rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "200ms" }} />
               </div>
-              <span className="truncate max-w-[340px]">{runningLabel}</span>
+              <span className="truncate max-w-[320px] italic">{runningLabel}</span>
             </div>
           )}
 
-          {/* Collapsible summary trigger (Claude style: "> text") */}
+          {/* Done: select-style collapsible trigger */}
           {!runningTool && totalSteps > 0 && (
-            <button
-              onClick={() => setStepsOpen((v) => !v)}
-              className="flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground transition-colors group"
-            >
-              <svg
-                width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                className={cn("transition-transform shrink-0 text-muted-foreground/60 group-hover:text-muted-foreground", stepsOpen ? "rotate-90" : "")}
+            <div>
+              <button
+                onClick={() => setStepsOpen((v) => !v)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] transition-all select-none",
+                  stepsOpen
+                    ? "bg-muted border-border text-foreground"
+                    : "bg-muted/40 border-border/50 text-muted-foreground hover:bg-muted hover:border-border hover:text-foreground"
+                )}
               >
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
-              <span className="truncate max-w-[340px]">
-                {lastNotify ?? `${totalSteps} step${totalSteps !== 1 ? "s" : ""} taken`}
-              </span>
-            </button>
-          )}
-
-          {/* Expanded inline steps list */}
-          {stepsOpen && !runningTool && (
-            <div className="ml-[22px] border border-border/50 rounded-xl overflow-hidden bg-muted/20">
-              <div className="px-4 py-3 space-y-2.5">
-                {notifies.map((text, i) => (
-                  <div key={`n-${i}`} className="flex items-start gap-2.5">
-                    <div className="shrink-0 w-2 h-2 rounded-full bg-muted-foreground/30 mt-1.5" />
-                    <span className="text-xs text-muted-foreground leading-relaxed">{text}</span>
-                  </div>
-                ))}
-                {visibleTools.map((tool, i) => {
-                  const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
-                  const op = FILE_TOOL_NAMES.includes(tool.name) ? getFileOp(tool) : null;
-                  const title = op ? `${cfg.label} ${shortFilename(op.file)}` : cfg.label;
-                  const isClickable = tool.status === "done" && tool.result;
-                  return (
-                    <button
-                      key={`t-${i}`}
-                      onClick={() => isClickable ? setSelectedTool(tool) : undefined}
-                      className={cn(
-                        "flex items-start gap-2.5 w-full text-left rounded-lg px-1.5 -mx-1.5 py-1 -my-1 transition-colors",
-                        isClickable ? "hover:bg-muted/60 cursor-pointer" : "cursor-default"
-                      )}
-                    >
-                      <span className="shrink-0 w-[18px] h-[18px] rounded-sm border border-border/60 bg-background text-[10px] flex items-center justify-center mt-0.5">
-                        {cfg.icon}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className={cn("text-xs font-medium leading-snug", isClickable ? "text-foreground group-hover:text-primary" : "text-foreground")}>{title}</p>
-                        {(tool.args.command || tool.args.url || tool.args.query) && (
-                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate font-mono max-w-[240px]">
-                            {tool.args.command ?? tool.args.url ?? tool.args.query}
-                          </p>
-                        )}
-                      </div>
-                      {isClickable && (
-                        <svg className="w-3 h-3 text-muted-foreground/40 shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              {totalSteps > 2 && (
-                <button
-                  onClick={() => setShowSummary(true)}
-                  className="w-full text-[12px] text-primary/80 hover:text-primary px-4 py-2 border-t border-border/40 text-center transition-colors hover:bg-muted/30"
+                <svg
+                  width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                  className={cn("transition-transform duration-200 shrink-0", stepsOpen ? "rotate-90" : "")}
                 >
-                  View full summary →
-                </button>
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <span>{lastNotify ? lastNotify.slice(0, 55) + (lastNotify.length > 55 ? "…" : "") : `${totalSteps} step${totalSteps !== 1 ? "s" : ""} completed`}</span>
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-muted-foreground/15 text-[10px] font-medium">{totalSteps}</span>
+              </button>
+
+              {/* Expanded inline steps list */}
+              {stepsOpen && (
+                <div className="mt-2 ml-2 border border-border/40 rounded-xl overflow-hidden bg-muted/10 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+                  <div className="px-3 py-2.5 space-y-2">
+                    {notifies.map((text, i) => (
+                      <div key={`n-${i}`} className="flex items-start gap-2">
+                        <div className="shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/25 mt-[5px]" />
+                        <span className="text-[11px] text-muted-foreground leading-relaxed">{text}</span>
+                      </div>
+                    ))}
+                    {visibleTools.map((tool, i) => {
+                      const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
+                      const op = FILE_TOOL_NAMES.includes(tool.name) ? getFileOp(tool) : null;
+                      const title = op ? `${cfg.label} ${shortFilename(op.file)}` : cfg.label;
+                      const isClickable = tool.status === "done" && tool.result;
+                      return (
+                        <button
+                          key={`t-${i}`}
+                          onClick={() => isClickable ? setSelectedTool(tool) : undefined}
+                          className={cn(
+                            "flex items-center gap-2 w-full text-left rounded-lg px-1.5 -mx-1.5 py-1 -my-0.5 transition-colors",
+                            isClickable ? "hover:bg-muted/60 cursor-pointer" : "cursor-default"
+                          )}
+                        >
+                          <span className="shrink-0 w-4 h-4 rounded border border-border/50 bg-background text-[9px] flex items-center justify-center">
+                            {cfg.icon}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[11px] font-medium text-foreground/80 leading-none">{title}</span>
+                            {(tool.args.command || tool.args.url || tool.args.query) && (
+                              <span className="ml-1.5 text-[10px] text-muted-foreground font-mono">
+                                {String(tool.args.command ?? tool.args.url ?? tool.args.query).slice(0, 35)}
+                              </span>
+                            )}
+                          </div>
+                          {isClickable && (
+                            <svg className="w-2.5 h-2.5 text-muted-foreground/30 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {totalSteps > 3 && (
+                    <button
+                      onClick={() => setShowSummary(true)}
+                      className="w-full text-[11px] text-primary/70 hover:text-primary px-3 py-2 border-t border-border/30 text-center transition-colors hover:bg-muted/20"
+                    >
+                      View full summary ({totalSteps} steps) →
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -2487,42 +2508,44 @@ function MessageBubble({
         <ToolActivitySkeleton toolName={runningTool.name} args={runningTool.args} />
       )}
 
+      {/* ── Thinking animation — shown while streaming with no content yet and no running tool ── */}
+      {msg.streaming && !msg.content && !runningTool && !hasSteps && (
+        <div className="flex items-center gap-2.5 py-1">
+          <div className="flex gap-[3px]">
+            <span className="w-[6px] h-[6px] rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-[6px] h-[6px] rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "120ms" }} />
+            <span className="w-[6px] h-[6px] rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "240ms" }} />
+          </div>
+          <span className="text-sm text-muted-foreground/50 italic select-none animate-pulse">Thinking...</span>
+        </div>
+      )}
+
       {/* ── Message content ── */}
-      {(msg.content || (msg.streaming && !msg.content && !runningTool)) && (
+      {msg.content && (
         <div className="text-sm leading-relaxed text-foreground group/msg relative">
-          {msg.content ? (
-            <>
-              <MarkdownRenderer content={msg.content} streaming={msg.streaming} />
-              {msg.streaming && (
-                <span className="inline-block w-1.5 h-3.5 bg-foreground/40 rounded ml-0.5 animate-pulse align-middle" />
+          <MarkdownRenderer content={msg.content} streaming={msg.streaming} />
+          {msg.streaming && (
+            <span className="inline-block w-1.5 h-3.5 bg-foreground/40 rounded ml-0.5 animate-pulse align-middle" />
+          )}
+          {!msg.streaming && onCopy && (
+            <button
+              onClick={() => onCopy(msg.content, msg.id)}
+              className="mt-2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-muted-foreground border border-border/50 bg-muted/50 hover:bg-muted opacity-0 group-hover/msg:opacity-100 transition-opacity"
+              title="Copy message"
+            >
+              {isCopied ? (
+                <>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-600"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span className="text-emerald-600">Copied!</span>
+                </>
+              ) : (
+                <>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                  Copy
+                </>
               )}
-              {!msg.streaming && onCopy && (
-                <button
-                  onClick={() => onCopy(msg.content, msg.id)}
-                  className="mt-2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-muted-foreground border border-border/50 bg-muted/50 hover:bg-muted opacity-0 group-hover/msg:opacity-100 transition-opacity"
-                  title="Copy message"
-                >
-                  {isCopied ? (
-                    <>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-600"><polyline points="20 6 9 17 4 12"/></svg>
-                      <span className="text-emerald-600">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                      Copy
-                    </>
-                  )}
-                </button>
-              )}
-            </>
-          ) : msg.streaming ? (
-            <div className="flex gap-1.5 py-1">
-              <span className="w-2 h-2 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-2 h-2 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-2 h-2 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "300ms" }} />
-            </div>
-          ) : null}
+            </button>
+          )}
         </div>
       )}
 
@@ -2587,6 +2610,157 @@ function CodeViewModal({ file, onClose }: { file: { path: string; content: strin
         </div>
         <div className="px-4 py-2 border-t border-border bg-muted/20 shrink-0">
           <p className="text-xs text-muted-foreground font-mono">{file.path}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Bobo Database Modal ───────────────────────────────────────────────
+function BoboDatabaseModal({
+  projectId,
+  onAsk,
+  onClose,
+}: {
+  projectId: string;
+  onAsk: (q: string) => void;
+  onClose: () => void;
+}) {
+  const [stats, setStats] = useState<{
+    keyCount: number; userCount: number; usedKB: number; maxMB: number;
+    items: Array<{ key: string; type: string; size: number }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    fetch(`/api/projects/${projectId}/bobo/stats`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => r.json())
+      .then((d) => { setStats(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [projectId]);
+
+  const usedPct = stats ? Math.min(100, Math.round((stats.usedKB / 1024 / stats.maxMB) * 100)) : 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-background w-full sm:max-w-md max-h-[80dvh] rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
+        <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
+          <div className="w-10 h-1 bg-muted-foreground/20 rounded-full" />
+        </div>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+              </svg>
+            </div>
+            <h3 className="font-semibold text-sm">Databobo Storage</h3>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-8 rounded-xl bg-muted animate-pulse" />
+              ))}
+            </div>
+          ) : stats ? (
+            <>
+              {/* Stats row */}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: "Keys", value: stats.keyCount, icon: "🔑" },
+                  { label: "Users", value: stats.userCount, icon: "👤" },
+                  { label: "Used", value: `${stats.usedKB} KB`, icon: "💾" },
+                ].map((s) => (
+                  <div key={s.label} className="bg-muted/50 rounded-xl p-3 text-center border border-border/50">
+                    <div className="text-lg">{s.icon}</div>
+                    <div className="text-lg font-bold mt-1">{s.value}</div>
+                    <div className="text-[10px] text-muted-foreground">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Storage bar */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Storage used</span>
+                  <span className="font-medium">{stats.usedKB} KB / {stats.maxMB} MB</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-blue-500 transition-all"
+                    style={{ width: `${usedPct}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground">{usedPct}% of 100 MB used</p>
+              </div>
+
+              {/* Keys list */}
+              {stats.items.length > 0 ? (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Stored keys ({stats.items.length})</p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {stats.items.map((item) => (
+                      <div key={item.key} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border/40">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-mono text-foreground/90 truncate">{item.key}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{item.type} · {item.size} chars</p>
+                        </div>
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+                          item.type === "object" ? "bg-blue-500/10 text-blue-600" :
+                          item.type === "array" ? "bg-violet-500/10 text-violet-600" :
+                          item.type === "string" ? "bg-emerald-500/10 text-emerald-600" :
+                          "bg-muted text-muted-foreground"
+                        )}>
+                          {item.type}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <div className="text-3xl mb-2">📭</div>
+                  <p className="text-sm text-muted-foreground">No data stored yet</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">Ask the agent to integrate Bobo Data into your project</p>
+                </div>
+              )}
+
+              {/* Quick actions */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => onAsk("Set up Bobo Data integration — show me how to store and retrieve data from my project using Bobo Data API")}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-muted/50 border border-border hover:bg-muted transition-colors text-xs font-medium"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+                  Setup Bobo Data
+                </button>
+                <button
+                  onClick={() => onAsk("Show me all the data stored in Bobo Data for this project using get_secrets and listing the keys")}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-muted/50 border border-border hover:bg-muted transition-colors text-xs font-medium"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  View Data
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-6">Failed to load stats.</p>
+          )}
         </div>
       </div>
     </div>
