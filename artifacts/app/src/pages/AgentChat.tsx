@@ -301,6 +301,11 @@ export function AgentChat() {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" && window.innerWidth < 768
   );
+  const [showConsole, setShowConsole] = useState(false);
+  const [consoleLines, setConsoleLines] = useState<Array<{ type: string; text: string; ts: number }>>([]);
+  const [consoleRunning, setConsoleRunning] = useState(false);
+  const consoleSseRef = useRef<EventSource | null>(null);
+  const consoleEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -537,6 +542,69 @@ export function AgentChat() {
         setDeployBanner(d.url);
       } else { setDeployBanner(null); }
     } catch { setDeployBanner(null); }
+  }
+
+  function handleDownloadProject() {
+    const token = localStorage.getItem("token");
+    setShowMenu(false);
+    const a = document.createElement("a");
+    a.href = `/api/projects/${projectId}/download?token=${encodeURIComponent(token ?? "")}`;
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  function startConsole() {
+    const token = localStorage.getItem("token");
+    setShowMenu(false);
+    setShowConsole(true);
+    setConsoleLines([]);
+    setConsoleRunning(true);
+
+    // Close any existing SSE
+    if (consoleSseRef.current) {
+      consoleSseRef.current.close();
+      consoleSseRef.current = null;
+    }
+
+    const url = `/api/projects/${projectId}/run/stream?authorization=${encodeURIComponent(`Bearer ${token ?? ""}`)}`;
+    const es = new EventSource(url);
+    consoleSseRef.current = es;
+
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data) as { type: string; text: string; ts: number };
+        setConsoleLines((prev) => [...prev, data]);
+        setTimeout(() => consoleEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+        if (data.type === "exit" || data.type === "error") {
+          setConsoleRunning(false);
+          es.close();
+          consoleSseRef.current = null;
+        }
+      } catch {}
+    };
+    es.onerror = () => {
+      setConsoleRunning(false);
+      setConsoleLines((prev) => [...prev, { type: "error", text: "Connection lost", ts: Date.now() }]);
+      es.close();
+      consoleSseRef.current = null;
+    };
+  }
+
+  function stopConsole() {
+    const token = localStorage.getItem("token");
+    if (consoleSseRef.current) { consoleSseRef.current.close(); consoleSseRef.current = null; }
+    setConsoleRunning(false);
+    setConsoleLines((prev) => [...prev, { type: "info", text: "⏹ Stopped by user", ts: Date.now() }]);
+    fetch(`/api/projects/${projectId}/run/stream`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  }
+
+  function clearConsole() {
+    setConsoleLines([]);
   }
 
   async function saveSecretValue(req: SecretRequest, value: string) {
@@ -1031,11 +1099,18 @@ export function AgentChat() {
           <polygon points="5 3 19 12 5 21 5 3"/>
         </svg>
       ),
-      onClick: () => {
-        setInput("Build and run the project — if it's a web app use build_preview to show a live preview, if it's a backend/CLI run it and show the output");
-        setShowMenu(false);
-        setTimeout(() => sendMessage("Build and run the project — if it's a web app use build_preview to show a live preview, if it's a backend/CLI run it and show the output"), 100);
-      },
+      onClick: startConsole,
+    },
+    {
+      label: "Download Project",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      ),
+      onClick: handleDownloadProject,
     },
     {
       label: previewUrl ? (showPreviewPanel ? "Hide Preview" : "Show Preview") : "Build Preview",
@@ -1741,6 +1816,126 @@ export function AgentChat() {
               sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox"
               allow="camera; microphone; geolocation"
             />
+          </div>
+        )}
+
+        {/* ── Console Panel — desktop side panel ── */}
+        {showConsole && !isMobile && (
+          <div className="flex flex-col border-l border-border bg-[#0d1117] shrink-0 overflow-hidden" style={{ width: 480 }}>
+            {/* Console header */}
+            <div className="flex items-center gap-2 px-3 h-10 bg-[#161b22] border-b border-[#30363d] shrink-0">
+              <div className="flex items-center gap-1.5 mr-1">
+                <button
+                  onClick={() => { stopConsole(); setShowConsole(false); }}
+                  className="w-3 h-3 rounded-full bg-red-500 hover:bg-red-400 transition-colors flex items-center justify-center group"
+                  title="Close console"
+                >
+                  <svg width="5" height="5" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" className="opacity-0 group-hover:opacity-100">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+                <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                <div className="w-3 h-3 rounded-full bg-green-500" />
+              </div>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8b949e" strokeWidth="2" className="shrink-0">
+                <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+              </svg>
+              <span className="text-[11px] font-mono text-[#8b949e] flex-1 truncate">Project Console</span>
+              {consoleRunning && (
+                <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  running
+                </span>
+              )}
+              {!consoleRunning && (
+                <span className="text-[10px] text-[#8b949e] font-mono">stopped</span>
+              )}
+              <div className="flex items-center gap-1 ml-1">
+                <button
+                  onClick={clearConsole}
+                  className="px-2 py-0.5 rounded text-[10px] font-mono text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#21262d] transition-colors"
+                  title="Clear console"
+                >clear</button>
+                {consoleRunning ? (
+                  <button
+                    onClick={stopConsole}
+                    className="px-2 py-0.5 rounded text-[10px] font-mono text-red-400 hover:text-red-300 hover:bg-[#21262d] transition-colors border border-red-800/50"
+                    title="Stop process"
+                  >■ stop</button>
+                ) : (
+                  <button
+                    onClick={startConsole}
+                    className="px-2 py-0.5 rounded text-[10px] font-mono text-emerald-400 hover:text-emerald-300 hover:bg-[#21262d] transition-colors border border-emerald-800/50"
+                    title="Restart process"
+                  >▶ restart</button>
+                )}
+              </div>
+            </div>
+            {/* Console output */}
+            <div className="flex-1 overflow-y-auto p-3 font-mono text-[12px] leading-5 space-y-0.5">
+              {consoleLines.length === 0 && (
+                <div className="text-[#6e7681] italic">Starting process…</div>
+              )}
+              {consoleLines.map((line, i) => {
+                const color = line.type === "stderr" || line.type === "error"
+                  ? "text-red-400"
+                  : line.type === "exit"
+                  ? "text-yellow-400"
+                  : line.type === "info"
+                  ? "text-[#6e7681]"
+                  : "text-[#c9d1d9]";
+                return (
+                  <div key={i} className={`whitespace-pre-wrap break-all ${color}`}>
+                    {line.type === "stderr" && <span className="text-red-600 mr-1 select-none">!</span>}
+                    {line.text}
+                  </div>
+                );
+              })}
+              <div ref={consoleEndRef} />
+            </div>
+          </div>
+        )}
+
+        {/* ── Console Modal — mobile full screen ── */}
+        {showConsole && isMobile && (
+          <div className="fixed inset-0 z-[80] flex flex-col bg-[#0d1117] animate-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center gap-2 px-3 h-12 bg-[#161b22] border-b border-[#30363d] shrink-0">
+              <button
+                onClick={() => { stopConsole(); setShowConsole(false); }}
+                className="p-2 rounded-xl hover:bg-[#21262d] transition-colors text-[#8b949e]"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b949e" strokeWidth="2">
+                <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+              </svg>
+              <span className="flex-1 text-[12px] font-mono text-[#c9d1d9]">Console</span>
+              {consoleRunning && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
+              {consoleRunning ? (
+                <button onClick={stopConsole} className="px-3 py-1 rounded-lg text-[11px] font-mono text-red-400 border border-red-800/50 hover:bg-[#21262d]">■ Stop</button>
+              ) : (
+                <button onClick={startConsole} className="px-3 py-1 rounded-lg text-[11px] font-mono text-emerald-400 border border-emerald-800/50 hover:bg-[#21262d]">▶ Restart</button>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 font-mono text-[12px] leading-5 space-y-0.5">
+              {consoleLines.length === 0 && (
+                <div className="text-[#6e7681] italic">Starting…</div>
+              )}
+              {consoleLines.map((line, i) => {
+                const color = line.type === "stderr" || line.type === "error"
+                  ? "text-red-400" : line.type === "exit" ? "text-yellow-400"
+                  : line.type === "info" ? "text-[#6e7681]" : "text-[#c9d1d9]";
+                return (
+                  <div key={i} className={`whitespace-pre-wrap break-all ${color}`}>
+                    {line.type === "stderr" && <span className="text-red-600 mr-1 select-none">!</span>}
+                    {line.text}
+                  </div>
+                );
+              })}
+              <div ref={consoleEndRef} />
+            </div>
           </div>
         )}
 

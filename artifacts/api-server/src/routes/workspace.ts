@@ -1,13 +1,17 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
+import type { ChildProcess } from "child_process";
 import { promisify } from "util";
 import { findById, findWhere, readCollection, updateRecord } from "../lib/storage.js";
 import type { User } from "./auth.js";
 
 const execAsync = promisify(exec);
 const router = Router();
+
+// Track live running processes per project
+const runningProcesses = new Map<string, ChildProcess>();
 
 // Use process.cwd() (= artifacts/api-server/) to avoid __dirname bundle issues
 const WORKSPACES_DIR = process.env.WORKSPACES_DIR ?? path.resolve(process.cwd(), "../../agentdata/projects");
@@ -21,7 +25,11 @@ function getWorkspaceDir(projectId: string): string {
 function getUserId(req: any): string | null {
   let userId = req.session?.userId;
   if (!userId) {
-    const authHeader = req.headers.authorization;
+    // Check Authorization header OR query param (needed for EventSource / direct download links)
+    const rawAuth = req.headers.authorization
+      || (req.query.authorization ? decodeURIComponent(req.query.authorization as string) : null)
+      || (req.query.token ? `Bearer ${decodeURIComponent(req.query.token as string)}` : null);
+    const authHeader = rawAuth as string | undefined;
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       try {
@@ -156,7 +164,7 @@ router.post("/projects/:projectId/install", async (req, res) => {
   }
 });
 
-// POST /api/projects/:projectId/run
+// POST /api/projects/:projectId/run (legacy — kept for compatibility)
 router.post("/projects/:projectId/run", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -179,6 +187,131 @@ router.post("/projects/:projectId/run", async (req, res) => {
     res.json({ stdout: stdout || "", stderr: stderr || "", exitCode: 0, entry });
   } catch (err: any) {
     res.json({ stdout: err.stdout || "", stderr: err.stderr || err.message, exitCode: 1, entry });
+  }
+});
+
+// GET /api/projects/:projectId/run/stream — SSE streaming run console
+router.get("/projects/:projectId/run/stream", (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+  const project = findById<any>("projects", req.params.projectId);
+  if (!project || project.userId !== userId) { res.status(404).json({ error: "Project not found" }); return; }
+
+  const wsDir = getWorkspaceDir(req.params.projectId);
+  const secrets = getProjectSecrets(req.params.projectId);
+
+  // Kill any existing process for this project
+  const existingProc = runningProcesses.get(req.params.projectId);
+  if (existingProc) {
+    try { existingProc.kill("SIGTERM"); } catch {}
+    runningProcesses.delete(req.params.projectId);
+  }
+
+  // Detect run command from project type
+  function detectRunCommand(): { cmd: string; args: string[]; label: string } {
+    const pkgPath = path.join(wsDir, "package.json");
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+        const pm = fs.existsSync(path.join(wsDir, "pnpm-lock.yaml")) ? "pnpm"
+          : fs.existsSync(path.join(wsDir, "yarn.lock")) ? "yarn" : "npm";
+        const script = pkg.scripts?.dev ? "dev" : pkg.scripts?.start ? "start"
+          : pkg.scripts?.serve ? "serve" : null;
+        if (script) return { cmd: pm, args: ["run", script], label: `${pm} run ${script}` };
+      } catch {}
+    }
+    if (fs.existsSync(path.join(wsDir, "main.py"))) return { cmd: "python3", args: ["main.py"], label: "python3 main.py" };
+    if (fs.existsSync(path.join(wsDir, "app.py"))) return { cmd: "python3", args: ["app.py"], label: "python3 app.py" };
+    if (fs.existsSync(path.join(wsDir, "index.html"))) return { cmd: "python3", args: ["-m", "http.server", "3456"], label: "python3 -m http.server 3456" };
+    const entry = ["index.ts","src/index.ts","index.js","src/index.js"].find((f) => fs.existsSync(path.join(wsDir, f))) ?? "index.js";
+    const hasTsx = fs.existsSync(path.join(wsDir, "node_modules/.bin/tsx"));
+    return hasTsx
+      ? { cmd: "npx", args: ["tsx", entry], label: `npx tsx ${entry}` }
+      : { cmd: "node", args: [entry], label: `node ${entry}` };
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const send = (type: string, text: string) => {
+    try { res.write(`data: ${JSON.stringify({ type, text, ts: Date.now() })}\n\n`); (res as any).flush?.(); } catch {}
+  };
+
+  const { cmd, args, label } = detectRunCommand();
+  send("info", `▶ Starting: ${label}`);
+  send("info", `📂 Workspace: ${wsDir}`);
+
+  const proc = spawn(cmd, args, {
+    cwd: wsDir,
+    env: { ...process.env, ...secrets, PORT: "3456", FORCE_COLOR: "1", NO_COLOR: "0" },
+    shell: true,
+  });
+
+  runningProcesses.set(req.params.projectId, proc);
+
+  proc.stdout?.on("data", (data: Buffer) => {
+    data.toString().split("\n").filter(Boolean).forEach((line) => send("stdout", line));
+  });
+  proc.stderr?.on("data", (data: Buffer) => {
+    data.toString().split("\n").filter(Boolean).forEach((line) => send("stderr", line));
+  });
+  proc.on("error", (err) => send("error", `Process error: ${err.message}`));
+  proc.on("exit", (code, signal) => {
+    runningProcesses.delete(req.params.projectId);
+    send("exit", `Process exited — code: ${code ?? signal ?? "unknown"}`);
+    try { res.end(); } catch {}
+  });
+
+  req.on("close", () => {
+    try { proc.kill("SIGTERM"); } catch {}
+    runningProcesses.delete(req.params.projectId);
+  });
+});
+
+// DELETE /api/projects/:projectId/run/stream — stop the running process
+router.delete("/projects/:projectId/run/stream", (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+  const proc = runningProcesses.get(req.params.projectId);
+  if (proc) {
+    try { proc.kill("SIGTERM"); setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 3000); } catch {}
+    runningProcesses.delete(req.params.projectId);
+  }
+  res.json({ success: true, stopped: !!proc });
+});
+
+// GET /api/projects/:projectId/run/status — check if process is running
+router.get("/projects/:projectId/run/status", (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+  res.json({ running: runningProcesses.has(req.params.projectId) });
+});
+
+// GET /api/projects/:projectId/download — download project as ZIP
+router.get("/projects/:projectId/download", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+  const project = findById<any>("projects", req.params.projectId);
+  if (!project || project.userId !== userId) { res.status(404).json({ error: "Project not found" }); return; }
+
+  const wsDir = getWorkspaceDir(req.params.projectId);
+  const projectName = (project.name ?? "project").replace(/[^a-zA-Z0-9._-]/g, "_");
+
+  try {
+    res.setHeader("Content-Disposition", `attachment; filename="${projectName}.zip"`);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Cache-Control", "no-cache");
+
+    const { stdout } = await execAsync(
+      `zip -r - . --exclude "node_modules/*" --exclude ".git/*" --exclude "dist/*" --exclude "*.map" --exclude ".secrets.json" 2>/dev/null || true`,
+      { cwd: wsDir, maxBuffer: 1024 * 1024 * 100, encoding: "buffer" }
+    ) as any;
+    res.end(stdout);
+  } catch (err: any) {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
@@ -277,11 +410,11 @@ router.use("/projects/:projectId/preview", (req, res) => {
 });
 
 // Helpers
-const runningProcesses: Record<string, any> = {};
 function killProject(projectId: string) {
-  if (runningProcesses[projectId]) {
-    try { runningProcesses[projectId].kill("SIGTERM"); } catch {}
-    delete runningProcesses[projectId];
+  const proc = runningProcesses.get(projectId);
+  if (proc) {
+    try { proc.kill("SIGTERM"); } catch {}
+    runningProcesses.delete(projectId);
   }
 }
 

@@ -534,5 +534,35 @@
     ],
     "attachmentUrl": null,
     "createdAt": "2026-05-07T23:08:47.193Z"
+  },
+  {
+    "id": "ebbbab95-a8f9-48f2-9246-54f0c19cfdc7",
+    "projectId": "2c7693d4-9c91-46d4-b9f4-25d67ad0c456",
+    "role": "user",
+    "content": "كمل",
+    "thinkingSteps": null,
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:13:05.193Z"
+  },
+  {
+    "id": "243412ea-a2d8-4ffc-8c86-797356077c63",
+    "projectId": "2c7693d4-9c91-46d4-b9f4-25d67ad0c456",
+    "role": "assistant",
+    "content": "",
+    "thinkingSteps": [
+      "file_list",
+      "file_read",
+      "file_read",
+      "file_read",
+      "file_list",
+      "shell_exec",
+      "web_search",
+      "file_str_replace",
+      "shell_exec",
+      "web_search",
+      "file_str_replace"
+    ],
+    "attachmentUrl": null,
+    "createdAt": "2026-05-07T23:13:05.196Z"
   }
 ]
