@@ -2363,9 +2363,18 @@ router.post("/projects/:projectId/github/push", async (req, res) => {
     return;
   }
 
-  const { token, repo, message } = req.body as { token: string; repo: string; message?: string };
+  // Read saved GitHub config for this project
+  const cfgPath = path.join(getWorkspaceDir(req.params.projectId), ".github-config.json");
+  let savedCfg: Record<string, any> = {};
+  try { if (fs.existsSync(cfgPath)) savedCfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8")); } catch {}
+
+  const body = req.body as { token?: string; repo?: string; message?: string };
+  const token = body.token || savedCfg.token;
+  const repo = body.repo || savedCfg.repo;
+  const message = body.message;
+
   if (!token || !repo) {
-    res.status(400).json({ error: "token and repo are required (format: owner/repo)" });
+    res.status(400).json({ error: "No GitHub token or repo configured — connect GitHub first" });
     return;
   }
 
@@ -2384,8 +2393,14 @@ router.post("/projects/:projectId/github/push", async (req, res) => {
       await execAsync(`git init && git branch -M main`, { cwd: wsDir });
     }
 
-    // Set up git user if not set
+    // Set up git user
     await execAsync(`git config user.email "ai-builder@platform.dev" && git config user.name "AI Builder"`, { cwd: wsDir });
+
+    // Create .gitignore if it doesn't exist
+    const gitignorePath = path.join(wsDir, ".gitignore");
+    if (!fs.existsSync(gitignorePath)) {
+      fs.writeFileSync(gitignorePath, "node_modules/\n.env\n.env.local\ndist/\nbuild/\n.github-config.json\n.secrets.json\n");
+    }
 
     // Stage all, commit, push
     await execAsync(`git add -A`, { cwd: wsDir });
@@ -2395,7 +2410,6 @@ router.post("/projects/:projectId/github/push", async (req, res) => {
       const { stdout } = await execAsync(`git commit -m "${commitMsg.replace(/"/g, "'")}"`, { cwd: wsDir });
       commitOutput = stdout;
     } catch (e: any) {
-      // If nothing to commit, that's OK
       if (!e.stdout?.includes("nothing to commit")) throw e;
       commitOutput = "Nothing new to commit";
     }
@@ -2403,6 +2417,15 @@ router.post("/projects/:projectId/github/push", async (req, res) => {
     await execAsync(`git remote remove origin 2>/dev/null || true`, { cwd: wsDir });
     await execAsync(`git remote add origin ${remoteUrl}`, { cwd: wsDir });
     await execAsync(`git push -u origin main --force`, { cwd: wsDir });
+
+    // Update lastPushedAt in saved config
+    if (fs.existsSync(cfgPath)) {
+      try {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+        cfg.lastPushedAt = new Date().toISOString();
+        fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+      } catch {}
+    }
 
     const repoUrl = `https://github.com/${repo}`;
     res.json({ success: true, url: repoUrl, commit: commitOutput.trim() });

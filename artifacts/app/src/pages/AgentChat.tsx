@@ -323,6 +323,16 @@ export function AgentChat() {
     try { const cfg = JSON.parse(localStorage.getItem("github-config") ?? "{}"); return cfg.defaultRepo ?? ""; } catch { return ""; }
   });
   const [githubCommitMsg, setGithubCommitMsg] = useState("");
+  // GitHub connect state
+  type GithubStatus =
+    | { connected: false }
+    | { connected: true; repo: string; username: string; connectedAt: string; lastPushedAt: string | null; autoPush: boolean };
+  const [githubStatus, setGithubStatus] = useState<GithubStatus>({ connected: false });
+  const [githubStatusLoading, setGithubStatusLoading] = useState(false);
+  const [githubConnectToken, setGithubConnectToken] = useState("");
+  const [githubConnectRepo, setGithubConnectRepo] = useState("");
+  const [githubConnectStatus, setGithubConnectStatus] = useState<"idle" | "connecting" | "done" | "error">("idle");
+  const [githubConnectError, setGithubConnectError] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [aiSourceLabel, setAiSourceLabel] = useState<string | null>(null);
   const [showBoboDB, setShowBoboDB] = useState(false);
@@ -519,6 +529,7 @@ export function AgentChat() {
 
   useEffect(() => { loadDeployInfo(); }, [projectId]);
   useEffect(() => { loadFiles(); }, [projectId]);
+  useEffect(() => { loadGithubStatus(); }, [projectId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -552,6 +563,71 @@ export function AgentChat() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) { const d = await res.json(); setFiles(d.files ?? []); }
+    } catch {}
+  }
+
+  async function loadGithubStatus() {
+    const authToken = localStorage.getItem("token");
+    setGithubStatusLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/github/status`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) setGithubStatus(await res.json());
+    } catch {}
+    setGithubStatusLoading(false);
+  }
+
+  async function connectToGitHub() {
+    const authToken = localStorage.getItem("token");
+    if (!githubConnectToken.trim()) { setGithubConnectError("Enter your GitHub token"); return; }
+    if (!githubConnectRepo.trim()) { setGithubConnectError("Enter a repository name (e.g. username/myproject)"); return; }
+    setGithubConnectStatus("connecting");
+    setGithubConnectError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/github/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ token: githubConnectToken.trim(), repo: githubConnectRepo.trim(), autoPush: false }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setGithubConnectStatus("done");
+        setGithubStatus({ connected: true, repo: json.repo, username: json.username, connectedAt: json.connectedAt, lastPushedAt: null, autoPush: false });
+        setGithubConnectToken("");
+      } else {
+        setGithubConnectError(json.error ?? "Connection failed");
+        setGithubConnectStatus("error");
+      }
+    } catch (e: any) {
+      setGithubConnectError(e.message ?? "Network error");
+      setGithubConnectStatus("error");
+    }
+  }
+
+  async function disconnectGitHub() {
+    const authToken = localStorage.getItem("token");
+    try {
+      await fetch(`/api/projects/${projectId}/github/disconnect`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+    } catch {}
+    setGithubStatus({ connected: false });
+    setGithubConnectStatus("idle");
+    setGithubPushStatus("idle");
+    setGithubPushResult(null);
+  }
+
+  async function toggleAutoPush(val: boolean) {
+    const authToken = localStorage.getItem("token");
+    try {
+      await fetch(`/api/projects/${projectId}/github/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ autoPush: val }),
+      });
+      setGithubStatus((prev) => prev.connected ? { ...prev, autoPush: val } : prev);
     } catch {}
   }
 
@@ -735,33 +811,32 @@ export function AgentChat() {
     });
   }
 
-  async function pushToGitHub() {
-    const githubCfg = (() => { try { return JSON.parse(localStorage.getItem("github-config") ?? "{}"); } catch { return {}; } })();
-    const token = githubCfg.token;
-    if (!token) { setGithubPushResult({ error: "No GitHub token found. Add it in Settings → Connectors." }); setGithubPushStatus("error"); return; }
-    const repo = githubRepo || githubCfg.defaultRepo;
-    if (!repo) { setGithubPushResult({ error: "Enter a repository (e.g. username/myrepo)" }); setGithubPushStatus("error"); return; }
-
-    setGithubPushStatus("pushing");
+  async function pushToGitHub(silent = false) {
+    if (!githubStatus.connected) {
+      setGithubPushResult({ error: "Connect to GitHub first" });
+      setGithubPushStatus("error");
+      return;
+    }
+    if (!silent) setGithubPushStatus("pushing");
     setGithubPushResult(null);
     const authToken = localStorage.getItem("token");
     try {
       const res = await fetch(`/api/projects/${projectId}/github/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-        body: JSON.stringify({ token, repo, message: githubCommitMsg || undefined }),
+        body: JSON.stringify({ message: githubCommitMsg || undefined }),
       });
       const json = await res.json();
       if (res.ok) {
         setGithubPushResult({ url: json.url });
         setGithubPushStatus("done");
+        // Update lastPushedAt
+        setGithubStatus((prev) => prev.connected ? { ...prev, lastPushedAt: new Date().toISOString() } : prev);
       } else {
-        setGithubPushResult({ error: json.error ?? "Push failed" });
-        setGithubPushStatus("error");
+        if (!silent) { setGithubPushResult({ error: json.error ?? "Push failed" }); setGithubPushStatus("error"); }
       }
     } catch (e: any) {
-      setGithubPushResult({ error: e.message ?? "Network error" });
-      setGithubPushStatus("error");
+      if (!silent) { setGithubPushResult({ error: e.message ?? "Network error" }); setGithubPushStatus("error"); }
     }
   }
 
@@ -948,6 +1023,7 @@ export function AgentChat() {
                 case "git_pushed":
                   setGithubPushResult({ url: data.url });
                   setGithubPushStatus("done");
+                  setGithubStatus((prev) => prev.connected ? { ...prev, lastPushedAt: new Date().toISOString() } : prev);
                   break;
                 case "done":
                   if (data.role !== undefined) {
@@ -1047,6 +1123,10 @@ export function AgentChat() {
       );
       loadFiles();
       loadDeployInfo();
+      // Auto-push to GitHub if configured
+      if (githubStatus.connected && githubStatus.autoPush) {
+        setTimeout(() => pushToGitHub(true), 2000);
+      }
       // Delay refresh so the server has time to save the message before we refetch
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(projectId) });
@@ -1216,15 +1296,19 @@ export function AgentChat() {
       },
     },
     {
-      label: "Git",
+      label: "GitHub",
+      badge: githubStatus.connected ? "✓" : undefined,
       icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
-          <path d="M6 9v6M15.4 6.4L8.6 17.6"/>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
         </svg>
       ),
       onClick: () => {
-        setInput("Show git status and recent commits");
+        setShowGithubModal(true);
+        setGithubPushStatus("idle");
+        setGithubPushResult(null);
+        setGithubConnectStatus("idle");
+        setGithubConnectError(null);
         setShowMenu(false);
       },
     },
@@ -2033,20 +2117,35 @@ export function AgentChat() {
       )}
 
 
-      {/* ── GitHub Push Modal ── */}
+      {/* ── GitHub Modal (Connect + Push) ── */}
       {showGithubModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (githubPushStatus !== "pushing") setShowGithubModal(false); }} />
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (githubConnectStatus !== "connecting" && githubPushStatus !== "pushing") setShowGithubModal(false); }} />
           <div className="relative bg-background w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
+            {/* drag handle (mobile) */}
             <div className="flex justify-center pt-3 pb-1 sm:hidden">
               <div className="w-10 h-1 bg-muted-foreground/20 rounded-full" />
             </div>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/60">
               <div className="flex items-center gap-2.5">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
-                </svg>
-                <h3 className="font-semibold text-sm">Push to GitHub</h3>
+                <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center", githubStatus.connected ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-muted")}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className={githubStatus.connected ? "text-emerald-600" : "text-foreground/70"}>
+                    <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm leading-none">GitHub</h3>
+                  {githubStatus.connected ? (
+                    <p className="text-[11px] text-emerald-600 mt-0.5 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                      متصل بـ {githubStatus.repo}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">غير متصل</p>
+                  )}
+                </div>
               </div>
               <button onClick={() => setShowGithubModal(false)} className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -2054,50 +2153,136 @@ export function AgentChat() {
                 </svg>
               </button>
             </div>
-            <div className="p-5 space-y-4">
-              {githubPushStatus === "done" ? (
-                <div className="flex flex-col items-center gap-3 py-4 text-center">
+
+            <div className="p-5">
+              {/* ── Not connected: Connect form ── */}
+              {!githubStatus.connected && githubConnectStatus !== "done" && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+                      توكن GitHub
+                      <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" rel="noopener noreferrer"
+                        className="ml-2 text-primary hover:underline font-normal">← أنشئ توكن</a>
+                    </label>
+                    <input
+                      type="password"
+                      value={githubConnectToken}
+                      onChange={(e) => setGithubConnectToken(e.target.value)}
+                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                      autoComplete="off"
+                      className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all font-mono"
+                    />
+                    <p className="text-[11px] text-muted-foreground/60 mt-1">يتطلب صلاحية <code className="text-[10px] bg-muted px-1 rounded">repo</code> — يُحفظ بشكل آمن في المشروع</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">اسم الريبو</label>
+                    <input
+                      type="text"
+                      value={githubConnectRepo}
+                      onChange={(e) => setGithubConnectRepo(e.target.value)}
+                      placeholder="username/my-project"
+                      className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                      onKeyDown={(e) => e.key === "Enter" && connectToGitHub()}
+                    />
+                    <p className="text-[11px] text-muted-foreground/60 mt-1">سيُنشئ الريبو تلقائياً إذا لم يكن موجوداً</p>
+                  </div>
+                  {githubConnectError && (
+                    <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/20 rounded-xl px-3.5 py-2.5">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-destructive shrink-0 mt-0.5">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                      <p className="text-xs text-destructive">{githubConnectError}</p>
+                    </div>
+                  )}
+                  <button
+                    onClick={connectToGitHub}
+                    disabled={githubConnectStatus === "connecting"}
+                    className="w-full py-2.5 rounded-xl bg-foreground text-background text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {githubConnectStatus === "connecting" ? (
+                      <>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                          <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M21 12a9 9 0 01-9-9"/>
+                        </svg>
+                        جاري التحقق…
+                      </>
+                    ) : "ربط بـ GitHub"}
+                  </button>
+                </div>
+              )}
+
+              {/* ── Just connected success ── */}
+              {githubConnectStatus === "done" && githubStatus.connected && githubPushStatus === "idle" && (
+                <div className="flex flex-col items-center gap-3 py-3 text-center">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-600">
                       <polyline points="20 6 9 17 4 12"/>
                     </svg>
                   </div>
                   <div>
-                    <p className="font-semibold text-sm">Pushed successfully!</p>
-                    {githubPushResult?.url && (
-                      <a href={githubPushResult.url} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-primary hover:underline">{githubPushResult.url}</a>
-                    )}
+                    <p className="font-semibold text-sm">تم الاتصال بنجاح!</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      <a href={`https://github.com/${githubStatus.repo}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        github.com/{githubStatus.repo}
+                      </a>
+                    </p>
                   </div>
-                  <button onClick={() => setShowGithubModal(false)}
-                    className="px-5 py-2 rounded-xl bg-foreground text-background text-sm font-medium hover:opacity-90 transition-all">
-                    Close
+                  <button
+                    onClick={() => { setGithubConnectStatus("idle"); setGithubPushStatus("idle"); }}
+                    className="px-5 py-2 rounded-xl bg-foreground text-background text-sm font-medium hover:opacity-90 transition-all"
+                  >
+                    رفع الكود الآن ↑
                   </button>
                 </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Repository</label>
-                    <input
-                      type="text"
-                      value={githubRepo}
-                      onChange={(e) => setGithubRepo(e.target.value)}
-                      placeholder="username/repository"
-                      className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all"
-                    />
-                    <p className="text-[11px] text-muted-foreground mt-1">Repository will be created if it doesn't exist (with your token's permissions)</p>
+              )}
+
+              {/* ── Connected: Push panel ── */}
+              {githubStatus.connected && githubConnectStatus !== "done" && (
+                <div className="space-y-4">
+                  {/* Repo info row */}
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border/40">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-emerald-600">
+                        <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+                      </svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <a href={`https://github.com/${githubStatus.repo}`} target="_blank" rel="noopener noreferrer"
+                        className="text-sm font-medium hover:text-primary transition-colors truncate block">{githubStatus.repo}</a>
+                      <p className="text-[11px] text-muted-foreground">
+                        {githubStatus.lastPushedAt
+                          ? `آخر رفع: ${new Date(githubStatus.lastPushedAt).toLocaleDateString("ar-SA", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
+                          : "لم يتم الرفع بعد"}
+                      </p>
+                    </div>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                   </div>
+
+                  {/* Push success result */}
+                  {githubPushStatus === "done" && githubPushResult?.url && (
+                    <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200/60 dark:border-emerald-700/40 rounded-xl px-3.5 py-2.5">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-600 shrink-0">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400">تم الرفع! <a href={githubPushResult.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">افتح الريبو</a></p>
+                    </div>
+                  )}
+
+                  {/* Commit message */}
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Commit message <span className="font-normal">(optional)</span></label>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">رسالة الـ commit <span className="font-normal">(اختياري)</span></label>
                     <input
                       type="text"
                       value={githubCommitMsg}
                       onChange={(e) => setGithubCommitMsg(e.target.value)}
-                      placeholder="Update from AI Builder"
+                      placeholder="تحديث من AI Builder"
                       className="w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                      onKeyDown={(e) => e.key === "Enter" && pushToGitHub()}
                     />
                   </div>
-                  {githubPushResult?.error && (
+
+                  {/* Push error */}
+                  {githubPushStatus === "error" && githubPushResult?.error && (
                     <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/20 rounded-xl px-3.5 py-2.5">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-destructive shrink-0 mt-0.5">
                         <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -2105,27 +2290,59 @@ export function AgentChat() {
                       <p className="text-xs text-destructive">{githubPushResult.error}</p>
                     </div>
                   )}
-                  <div className="flex items-center gap-3 pt-1">
+
+                  {/* Push button */}
+                  <button
+                    onClick={() => pushToGitHub()}
+                    disabled={githubPushStatus === "pushing"}
+                    className="w-full py-2.5 rounded-xl bg-foreground text-background text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {githubPushStatus === "pushing" ? (
+                      <>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                          <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M21 12a9 9 0 01-9-9"/>
+                        </svg>
+                        جاري الرفع…
+                      </>
+                    ) : (
+                      <>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        رفع الكود إلى GitHub
+                      </>
+                    )}
+                  </button>
+
+                  {/* Auto-push toggle */}
+                  <div className="flex items-center justify-between py-2 px-3 rounded-xl border border-border/40 bg-muted/20">
+                    <div>
+                      <p className="text-[12.5px] font-medium">رفع تلقائي</p>
+                      <p className="text-[11px] text-muted-foreground">ارفع الكود تلقائياً بعد كل مهمة للوكيل</p>
+                    </div>
                     <button
-                      onClick={pushToGitHub}
-                      disabled={githubPushStatus === "pushing"}
-                      className="flex-1 py-2.5 rounded-xl bg-foreground text-background text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      onClick={() => toggleAutoPush(!githubStatus.autoPush)}
+                      className={cn(
+                        "relative w-10 h-5.5 rounded-full transition-colors duration-200 shrink-0",
+                        githubStatus.autoPush ? "bg-emerald-500" : "bg-muted-foreground/30"
+                      )}
+                      style={{ width: 40, height: 22 }}
                     >
-                      {githubPushStatus === "pushing" ? (
-                        <>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
-                            <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M21 12a9 9 0 01-9-9"/>
-                          </svg>
-                          Pushing...
-                        </>
-                      ) : "Push to GitHub"}
-                    </button>
-                    <button onClick={() => setShowGithubModal(false)}
-                      className="px-4 py-2.5 rounded-xl text-sm border border-border hover:bg-muted transition-colors">
-                      Cancel
+                      <span className={cn(
+                        "absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow-sm transition-transform duration-200",
+                        githubStatus.autoPush ? "translate-x-[19px]" : "translate-x-0.5"
+                      )} style={{ width: 18, height: 18 }} />
                     </button>
                   </div>
-                </>
+
+                  {/* Disconnect */}
+                  <button
+                    onClick={disconnectGitHub}
+                    className="w-full text-[11.5px] text-muted-foreground/50 hover:text-destructive/70 transition-colors py-1 text-center"
+                  >
+                    إلغاء الاتصال بـ GitHub
+                  </button>
+                </div>
               )}
             </div>
           </div>
