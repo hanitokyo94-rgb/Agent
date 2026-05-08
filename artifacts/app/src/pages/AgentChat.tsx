@@ -56,6 +56,45 @@ interface SecretRequest {
   msgId: string;
 }
 
+// ── Icon background colours per tool colour key ─────────────────────
+const STEP_ICON_BG: Record<string, string> = {
+  blue:    "bg-blue-100/70 dark:bg-blue-900/30",
+  slate:   "bg-slate-100/80 dark:bg-slate-800/50",
+  amber:   "bg-amber-100/70 dark:bg-amber-900/30",
+  red:     "bg-red-100/70 dark:bg-red-900/30",
+  violet:  "bg-violet-100/70 dark:bg-violet-900/30",
+  orange:  "bg-orange-100/70 dark:bg-orange-900/30",
+  cyan:    "bg-cyan-100/70 dark:bg-cyan-900/30",
+  yellow:  "bg-yellow-100/70 dark:bg-yellow-900/30",
+  emerald: "bg-emerald-100/70 dark:bg-emerald-900/30",
+};
+
+// ── Generate a smart human-readable label from what the agent did ────
+function buildStepsLabel(tools: ToolEvent[]): string {
+  const writes  = tools.filter(t => t.name === "file_write" || t.name === "file_str_replace").length;
+  const reads   = tools.filter(t => t.name === "file_read" || t.name === "file_list" || t.name === "file_find_by_name" || t.name === "file_find_in_content").length;
+  const runs    = tools.filter(t => t.name === "shell_exec").length;
+  const installs= tools.filter(t => t.name === "install_packages").length;
+  const deploys = tools.filter(t => t.name === "deploy_to_vercel" || t.name === "expo_snack").length;
+  const searches= tools.filter(t => t.name === "web_search" || t.name === "fetch_url").length;
+  const secrets = tools.filter(t => t.name === "set_secret" || t.name === "get_secrets").length;
+
+  const parts: string[] = [];
+  if (deploys > 0) parts.push(deploys === 1 ? "نشر المشروع" : `نشر ${deploys}×`);
+  if (writes > 0)  parts.push(writes === 1 ? "تعديل ملف" : `تعديل ${writes} ملف`);
+  if (installs > 0) parts.push(installs === 1 ? "تثبيت حزم" : `تثبيت ${installs}×`);
+  if (runs > 0)    parts.push(runs === 1 ? "تشغيل أمر" : `تشغيل ${runs} أمر`);
+  if (searches > 0) parts.push("بحث الويب");
+  if (reads > 0 && parts.length === 0) parts.push(reads === 1 ? "قراءة ملف" : `قراءة ${reads} ملف`);
+  if (secrets > 0 && parts.length === 0) parts.push("إعداد مفاتيح");
+
+  if (parts.length === 0) {
+    const n = tools.length;
+    return n === 1 ? "خطوة واحدة" : `${n} خطوات`;
+  }
+  return parts.slice(0, 3).join(" · ");
+}
+
 const TOOL_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
   file_write:           { label: "Writing",       icon: "✏️",  color: "blue" },
   file_read:            { label: "Reading",        icon: "📖", color: "slate" },
@@ -2733,67 +2772,96 @@ function MessageBubble({
         </div>
       )}
 
-      {/* ── Steps collapsible — only tool calls, no notifies inside ── */}
+      {/* ── Steps collapsible — dynamic label + clean design ── */}
       {!runningTool && visibleTools.length > 0 && (
         <div>
+          {/* Trigger — no background, ghost style */}
           <button
             onClick={() => setStepsOpen((v) => !v)}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-all select-none border",
-              stepsOpen
-                ? "bg-muted/60 border-border/60 text-foreground/70"
-                : "bg-transparent border-border/40 text-muted-foreground hover:bg-muted/40 hover:border-border/60 hover:text-foreground/70"
-            )}
+            className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground/55 hover:text-foreground/65 transition-colors duration-150 select-none group/stbtn"
           >
             <svg
-              width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-              className={cn("transition-transform duration-150 shrink-0", stepsOpen ? "rotate-90" : "")}
+              width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"
+              className={cn("transition-transform duration-200 shrink-0", stepsOpen ? "rotate-90" : "")}
             >
               <polyline points="9 18 15 12 9 6"/>
             </svg>
-            <span>{visibleTools.length} step{visibleTools.length !== 1 ? "s" : ""}</span>
+            <span className="font-medium tracking-tight">{buildStepsLabel(visibleTools)}</span>
           </button>
 
-          {/* Expanded steps list — tool calls only */}
+          {/* Expanded steps */}
           {stepsOpen && (
-            <div className="mt-1.5 ml-1 border border-border/30 rounded-lg overflow-hidden bg-muted/5 animate-in fade-in-0 slide-in-from-top-1 duration-150">
-              <div className="px-2.5 py-2 space-y-1">
+            <div className="mt-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+              <div className="space-y-px">
                 {visibleTools.map((tool, i) => {
                   const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
                   const op = FILE_TOOL_NAMES.includes(tool.name) ? getFileOp(tool) : null;
-                  const title = op ? `${cfg.label} ${shortFilename(op.file)}` : cfg.label;
-                  const isClickable = tool.status === "done" && tool.result;
+                  const isClickable = tool.status === "done" && !!tool.result;
+                  const detail = op
+                    ? shortFilename(op.file)
+                    : tool.args.command
+                    ? String(tool.args.command).slice(0, 48)
+                    : tool.args.query
+                    ? String(tool.args.query).slice(0, 48)
+                    : tool.args.url
+                    ? String(tool.args.url).slice(0, 48)
+                    : null;
+
                   return (
                     <button
                       key={`t-${i}`}
                       onClick={() => isClickable ? setSelectedTool(tool) : undefined}
                       className={cn(
-                        "flex items-center gap-2 w-full text-left rounded px-1.5 py-1 transition-colors",
-                        isClickable ? "hover:bg-muted/60 cursor-pointer" : "cursor-default"
+                        "flex items-center gap-2.5 w-full text-left rounded-lg px-2.5 py-1.5 transition-colors duration-100",
+                        isClickable
+                          ? "hover:bg-muted/50 cursor-pointer"
+                          : "cursor-default"
                       )}
                     >
-                      <span className="shrink-0 text-[11px]">{cfg.icon}</span>
-                      <div className="min-w-0 flex-1">
-                        <span className="text-[11px] text-foreground/70 leading-none">{title}</span>
-                        {(tool.args.command || tool.args.url || tool.args.query) && (
-                          <span className="ml-1.5 text-[10px] text-muted-foreground/60 font-mono">
-                            {String(tool.args.command ?? tool.args.url ?? tool.args.query).slice(0, 40)}
+                      {/* Icon pill */}
+                      <span className={cn(
+                        "shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] leading-none",
+                        STEP_ICON_BG[cfg.color] ?? "bg-slate-100 dark:bg-slate-800/60"
+                      )}>
+                        {cfg.icon}
+                      </span>
+
+                      {/* Label + detail */}
+                      <div className="min-w-0 flex-1 flex items-baseline gap-1.5">
+                        <span className="text-[12px] font-medium text-foreground/75 shrink-0 leading-none">
+                          {cfg.label}
+                        </span>
+                        {detail && (
+                          <span className="text-[10.5px] text-muted-foreground/50 font-mono truncate leading-none">
+                            {detail}
+                          </span>
+                        )}
+                        {/* line count for file ops */}
+                        {op && (op.added > 0 || op.removed > 0) && (
+                          <span className="shrink-0 text-[9.5px] font-mono ml-auto flex items-center gap-1">
+                            {op.added > 0 && <span className="text-emerald-500">+{op.added}</span>}
+                            {op.removed > 0 && <span className="text-rose-400">-{op.removed}</span>}
                           </span>
                         )}
                       </div>
+
+                      {/* Chevron for clickable */}
                       {isClickable && (
-                        <svg className="w-2.5 h-2.5 text-muted-foreground/30 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                        <svg className="w-2.5 h-2.5 text-muted-foreground/25 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="9 18 15 12 9 6"/>
+                        </svg>
                       )}
                     </button>
                   );
                 })}
               </div>
-              {visibleTools.length > 4 && (
+
+              {visibleTools.length > 5 && (
                 <button
                   onClick={() => setShowSummary(true)}
-                  className="w-full text-[11px] text-muted-foreground/50 hover:text-primary px-3 py-1.5 border-t border-border/20 text-center transition-colors hover:bg-muted/10"
+                  className="mt-1 w-full text-[11px] text-muted-foreground/40 hover:text-primary/70 py-1 text-center transition-colors"
                 >
-                  View all {visibleTools.length} steps →
+                  كل الخطوات ({visibleTools.length}) ←
                 </button>
               )}
             </div>
