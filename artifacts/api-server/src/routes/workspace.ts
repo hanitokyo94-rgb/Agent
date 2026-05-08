@@ -1,6 +1,7 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
+import net from "net";
 import { exec, spawn } from "child_process";
 import type { ChildProcess } from "child_process";
 import { promisify } from "util";
@@ -9,6 +10,23 @@ import type { User } from "./auth.js";
 
 const execAsync = promisify(exec);
 const router = Router();
+
+// Track allocated ports so concurrent run requests don't collide
+const allocatedPorts = new Set<number>();
+
+async function findAvailablePort(start = 3456, end = 3900): Promise<number> {
+  for (let port = start; port <= end; port++) {
+    if (allocatedPorts.has(port)) continue;
+    const available = await new Promise<boolean>((resolve) => {
+      const srv = net.createServer();
+      srv.once("error", () => resolve(false));
+      srv.once("listening", () => srv.close(() => resolve(true)));
+      srv.listen(port, "127.0.0.1");
+    });
+    if (available) { allocatedPorts.add(port); return port; }
+  }
+  return start; // fallback
+}
 
 // Track live running processes per project
 const runningProcesses = new Map<string, ChildProcess>();
@@ -191,7 +209,7 @@ router.post("/projects/:projectId/run", async (req, res) => {
 });
 
 // GET /api/projects/:projectId/run/stream — SSE streaming run console
-router.get("/projects/:projectId/run/stream", (req, res) => {
+router.get("/projects/:projectId/run/stream", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
   const project = findById<any>("projects", req.params.projectId);
@@ -241,16 +259,20 @@ router.get("/projects/:projectId/run/stream", (req, res) => {
   };
 
   const { cmd, args, label } = detectRunCommand();
+  const port = await findAvailablePort();
   send("info", `▶ Starting: ${label}`);
   send("info", `📂 Workspace: ${wsDir}`);
+  send("info", `🔌 Port: ${port}`);
 
   const proc = spawn(cmd, args, {
     cwd: wsDir,
-    env: { ...process.env, ...secrets, PORT: "3456", FORCE_COLOR: "1", NO_COLOR: "0" },
+    env: { ...process.env, ...secrets, PORT: String(port), FORCE_COLOR: "1", NO_COLOR: "0" },
     shell: true,
   });
 
   runningProcesses.set(req.params.projectId, proc);
+
+  proc.on("exit", () => { allocatedPorts.delete(port); });
 
   proc.stdout?.on("data", (data: Buffer) => {
     data.toString().split("\n").filter(Boolean).forEach((line) => send("stdout", line));
@@ -424,7 +446,16 @@ function getSecretsPath(projectId: string): string {
 function getProjectSecrets(projectId: string): Record<string, string> {
   const fp = getSecretsPath(projectId);
   if (!fs.existsSync(fp)) return {};
-  try { return JSON.parse(fs.readFileSync(fp, "utf-8")); } catch { return {}; }
+  try {
+    const raw: Record<string, string> = JSON.parse(fs.readFileSync(fp, "utf-8"));
+    // Resolve __PLATFORM_URL__ placeholder set during backfill / migration
+    const platformUrl = process.env.PLATFORM_URL ?? `https://${process.env.REPL_SLUG ?? "platform"}.replit.app`;
+    const resolved: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      resolved[k] = typeof v === "string" ? v.replace(/__PLATFORM_URL__/g, platformUrl) : v;
+    }
+    return resolved;
+  } catch { return {}; }
 }
 function setProjectSecrets(projectId: string, secrets: Record<string, string>) {
   fs.writeFileSync(getSecretsPath(projectId), JSON.stringify(secrets, null, 2), "utf-8");

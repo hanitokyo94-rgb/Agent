@@ -327,6 +327,12 @@ npm install express zod prisma @prisma/client     # production
 npm install -D typescript @types/node ts-node     # dev
 pip install fastapi uvicorn sqlalchemy            # Python
 \`\`\`
+
+### Package manager detection:
+Always match the project's package manager (check for lock files):
+- pnpm-lock.yaml → use pnpm add / pnpm install
+- yarn.lock → use yarn add / yarn install
+- else → use npm install
 </shell_mastery>
 
 <engineering_standards>
@@ -435,6 +441,16 @@ Use markdown for structure, terminal-style for progress, surgical for code.
 <bobo_services>
 ${platformUrl ? `Platform URL: ${platformUrl}` : ""}
 Your projects can use Bobo Auth and Bobo Data for authentication and storage.
+
+## 🔑 PRE-INJECTED AUTOMATICALLY — ZERO SETUP
+BOBO_PROJECT_KEY, BOBO_API_URL, VITE_BOBO_PROJECT_KEY, VITE_BOBO_API_URL, NEXT_PUBLIC_BOBO_PROJECT_KEY, NEXT_PUBLIC_BOBO_API_URL are **automatically pre-set** as project secrets for EVERY project. Do NOT call set_secret or request_secret for these — just use them in your code:
+
+\`\`\`env
+# Already in .secrets.json — available at runtime automatically
+BOBO_PROJECT_KEY=<auto>  BOBO_API_URL=<auto>
+VITE_BOBO_PROJECT_KEY=<auto>  VITE_BOBO_API_URL=<auto>
+\`\`\`
+
 Bobo Auth hosted login: ${platformUrl ?? "https://your-platform.repl.co"}/bobo-auth?project=<BOBO_PROJECT_KEY>&callback=<URL>&mode=login
 All Bobo APIs at: ${platformUrl ?? "https://your-platform.repl.co"}/api/bobo/
 </bobo_services>
@@ -1107,9 +1123,18 @@ await fetch(\`\${BOBO_URL}/api/bobo/data/delete?key=users:123\`, { method: "DELE
 - settings:{userId} → user settings
 - counter:{name} → counters
 
-IMPORTANT: ALWAYS use Bobo Auth + Bobo Data in projects that need auth or storage. 
-Set the environment variables using set_secret tool and use them in .env files.
-Get the project's BOBO_PROJECT_KEY with get_secrets (it equals the projectId, visible in logs).
+## 🔑 PRE-INJECTED — NO SETUP NEEDED
+BOBO_PROJECT_KEY, BOBO_API_URL, VITE_BOBO_PROJECT_KEY, VITE_BOBO_API_URL, NEXT_PUBLIC_BOBO_PROJECT_KEY, and NEXT_PUBLIC_BOBO_API_URL are **automatically pre-configured** as project secrets for EVERY project. You do NOT need to call set_secret, request_secret, or get_secrets for these — they are already stored and injected at runtime. Just use them directly in .env files and code:
+
+\`\`\`env
+# .env (already populated automatically — just reference these vars)
+BOBO_PROJECT_KEY=<auto-set>
+BOBO_API_URL=<auto-set>
+VITE_BOBO_PROJECT_KEY=<auto-set>
+VITE_BOBO_API_URL=<auto-set>
+\`\`\`
+
+IMPORTANT: ALWAYS use Bobo Auth + Bobo Data in projects that need auth or storage.
 </bobo_services>
 
 <expo_mobile>
@@ -1194,15 +1219,31 @@ const styles = StyleSheet.create({
 4. User scans QR with Expo Go on their phone to test live
 
 ### Snack limitations (keep code compatible):
-- No native modules requiring build steps
-- No local assets that can't be inline
-- Use CDN images when possible (via { uri: 'https://...' })
+- No native modules requiring build steps (no expo-camera, expo-location, expo-image-picker unless user asked for them)
+- No local file assets — use CDN images: { uri: 'https://...' }
 - Stick to Expo SDK packages (expo-*, react-native-*)
+- ALWAYS use SDK 52 (expo: "~52.0.0", react: "18.3.2", react-native: "0.76.5")
+- NEVER import from "react-native-vector-icons" — use "@expo/vector-icons" instead
+- NEVER use bare metro config — Expo Snack handles bundling
+- For navigation: use @react-navigation/native + @react-navigation/stack or @react-navigation/bottom-tabs
+- For state: use React useState / useReducer / Context or zustand
+- Keep App.tsx lean — mount NavigationContainer + Stack/Tab navigator there
+
+### Common Expo Snack errors to avoid:
+- Missing babel.config.js → ALWAYS include it (module.exports = { presets: ['babel-preset-expo'] })
+- Missing app.json → ALWAYS include with name, slug, sdkVersion: "52.0.0"
+- Using web-only APIs (localStorage, window, document) → use AsyncStorage instead
+- Large inline images → use { uri: "https://picsum.photos/..." } placeholders
 
 ### After expo_snack succeeds, the UI shows a QR card — tell the user to:
 1. Install "Expo Go" on their phone (App Store / Play Store)
 2. Scan the QR code in the card
 3. The app opens instantly on their device
+
+### If expo_snack returns an error:
+- Check that App.tsx exists at the workspace ROOT (not in src/ or app/)
+- Verify all imports reference valid Expo-compatible packages
+- Simplify complex dependencies and retry
 </expo_mobile>`;
 
   if (isArabic) {
@@ -1349,12 +1390,14 @@ async function executeTool(
           `For TypeScript errors: use \`npx tsc --noEmit\`\nFor build check: use \`npm run build\``;
       }
       const timeoutMs = Math.min((args.timeout ?? 90) * 1000, 300000);
+      // Only force NODE_ENV=production for build/check commands, not install commands
+      const isBuildCmd = /\b(build|tsc|vite\s+build|next\s+build|webpack)\b/i.test(cmd);
       try {
         const { stdout, stderr } = await execAsync(cmd, {
           cwd: wsDir,
           timeout: timeoutMs,
-          env: { ...process.env, ...secrets, NODE_ENV: "production" },
-          maxBuffer: 1024 * 1024 * 4,
+          env: { ...process.env, ...secrets, ...(isBuildCmd ? { NODE_ENV: "production" } : {}) },
+          maxBuffer: 1024 * 1024 * 8,
         });
         const out = [stdout, stderr].filter(Boolean).join("\n").trim();
         return out.length > 8000 ? out.slice(0, 8000) + "\n...[output truncated]" : out || "(command succeeded, no output)";
@@ -1420,16 +1463,25 @@ async function executeTool(
       const pkgs = (args.packages as string[])
         .map((p) => p.replace(/[^a-zA-Z0-9@/._~^<>=\-]/g, ""))
         .join(" ");
-      const flag = args.dev ? "--save-dev" : "--save";
+      // Detect package manager from lock files in workspace
+      const usesPnpm = fs.existsSync(path.join(wsDir, "pnpm-lock.yaml"));
+      const usesYarn = fs.existsSync(path.join(wsDir, "yarn.lock"));
+      const pm = usesPnpm ? "pnpm" : usesYarn ? "yarn" : "npm";
+      const devFlag = args.dev
+        ? (pm === "npm" ? "--save-dev" : (pm === "yarn" ? "--dev" : "-D"))
+        : (pm === "npm" ? "--save" : "");
+      const installCmd = pm === "pnpm" ? `pnpm add ${args.dev ? "-D " : ""}${pkgs}`
+        : pm === "yarn" ? `yarn add ${args.dev ? "--dev " : ""}${pkgs}`
+        : `npm install ${pkgs} ${devFlag}`.trim();
       try {
-        const { stdout, stderr } = await execAsync(`npm install ${pkgs} ${flag}`, {
+        const { stdout, stderr } = await execAsync(installCmd, {
           cwd: wsDir, timeout: 180000,
-          env: { ...process.env, NPM_CONFIG_YES: "true" },
+          env: { ...process.env, NPM_CONFIG_YES: "true", ADBLOCK: "1", DISABLE_OPENCOLLECTIVE: "1" },
         });
         const out = [stdout, stderr].filter(Boolean).join("\n").trim();
-        return `✓ Installed: ${pkgs}\n${out.slice(0, 2000)}`;
+        return `✓ Installed (${pm}): ${pkgs}\n${out.slice(0, 2000)}`;
       } catch (err: any) {
-        return `Install error:\n${[err.stdout, err.stderr].filter(Boolean).join("\n").trim().slice(0, 3000) || err.message}`;
+        return `Install error (${pm}):\n${[err.stdout, err.stderr].filter(Boolean).join("\n").trim().slice(0, 3000) || err.message}`;
       }
     }
 

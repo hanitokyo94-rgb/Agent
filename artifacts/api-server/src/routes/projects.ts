@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import path from "path";
+import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import {
   findWhere,
@@ -112,6 +113,31 @@ router.post("/projects", (req, res) => {
     updatedAt: now,
   };
   insertRecord("projects", project);
+
+  // Auto-inject BoboDB keys so every project has auth + storage ready immediately
+  try {
+    const WORKSPACES_DIR = process.env.WORKSPACES_DIR ?? path.resolve(process.cwd(), "../../agentdata/projects");
+    const wsDir = path.join(WORKSPACES_DIR, project.id);
+    fs.mkdirSync(wsDir, { recursive: true });
+    const secretsPath = path.join(wsDir, ".secrets.json");
+    const platformUrl = process.env.PLATFORM_URL
+      ?? (req.headers.host ? `https://${req.headers.host}` : "https://your-platform.replit.app");
+    const boboSecrets: Record<string, string> = {
+      BOBO_PROJECT_KEY: project.id,
+      BOBO_API_URL: platformUrl,
+      VITE_BOBO_PROJECT_KEY: project.id,
+      VITE_BOBO_API_URL: platformUrl,
+      NEXT_PUBLIC_BOBO_PROJECT_KEY: project.id,
+      NEXT_PUBLIC_BOBO_API_URL: platformUrl,
+    };
+    // Merge with existing secrets if any (e.g., re-creation)
+    let existing: Record<string, string> = {};
+    if (fs.existsSync(secretsPath)) {
+      try { existing = JSON.parse(fs.readFileSync(secretsPath, "utf-8")); } catch {}
+    }
+    fs.writeFileSync(secretsPath, JSON.stringify({ ...boboSecrets, ...existing }, null, 2));
+  } catch { /* non-fatal */ }
+
   res.json(toProjectView(project));
 });
 
