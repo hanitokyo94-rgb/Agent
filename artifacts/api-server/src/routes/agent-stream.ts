@@ -1605,16 +1605,18 @@ async function executeTool(
 
     case "generate_image": {
       try {
-        const rawBase = (process.env.AI_BASE_URL ?? "").replace(/\/+$/, "");
+        const rawBase = (process.env.AI_BASE_URL ?? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? "").replace(/\/+$/, "");
         // AI_BASE_URL may already end with /v1 — strip it to get the root, then re-add /v1
         const baseRoot = rawBase.replace(/\/v\d+$/, "");
         const baseUrl = baseRoot || rawBase;
-        const apiKey = process.env.AI_API_KEY;
+        const apiKey = process.env.AI_API_KEY ?? process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
         if (!apiKey) return "❌ AI_API_KEY not configured. Ask admin to set it.";
 
         const prompt: string = args.prompt;
         const size: string = args.size ?? "1024x1024";
-        const imageModel = args.model ?? "black-forest-labs/flux-schnell";
+        // Use gpt-image-1 when using Replit AI integration (no custom AI_BASE_URL set)
+        const usingReplitIntegration = !process.env.AI_BASE_URL && !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+        const imageModel = args.model ?? (usingReplitIntegration ? "gpt-image-1" : "black-forest-labs/flux-schnell");
         const rawFilename: string = args.filename ?? `image_${Date.now()}.png`;
         const filename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
 
@@ -1636,21 +1638,25 @@ async function executeTool(
         }
 
         const genData: any = await genRes.json();
-        const imageUrl: string = genData?.data?.[0]?.url;
-        if (!imageUrl) return `❌ No image URL in response: ${JSON.stringify(genData).slice(0, 300)}`;
-
-        sendEvent("notify", { text: "📥 Downloading generated image..." });
-
-        // Download the image
-        const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(60000) });
-        if (!imgRes.ok) return `❌ Failed to download image from URL`;
-        const imgBuffer = await imgRes.arrayBuffer();
 
         // Save to project workspace under images/
         const imgDir = path.join(wsDir, "images");
         fs.mkdirSync(imgDir, { recursive: true });
         const imgPath = path.join(imgDir, filename);
-        fs.writeFileSync(imgPath, Buffer.from(imgBuffer));
+
+        // Handle both b64_json (gpt-image-1) and URL-based responses
+        const b64Data: string | undefined = genData?.data?.[0]?.b64_json;
+        if (b64Data) {
+          fs.writeFileSync(imgPath, Buffer.from(b64Data, "base64"));
+        } else {
+          const imageUrl: string = genData?.data?.[0]?.url;
+          if (!imageUrl) return `❌ No image data in response: ${JSON.stringify(genData).slice(0, 300)}`;
+          sendEvent("notify", { text: "📥 Downloading generated image..." });
+          const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(60000) });
+          if (!imgRes.ok) return `❌ Failed to download image from URL`;
+          const imgBuffer = await imgRes.arrayBuffer();
+          fs.writeFileSync(imgPath, Buffer.from(imgBuffer));
+        }
 
         const relPath = `images/${filename}`;
         const previewUrl = `/api/projects/${projectId}/raw/${encodeURIComponent(relPath)}`;
