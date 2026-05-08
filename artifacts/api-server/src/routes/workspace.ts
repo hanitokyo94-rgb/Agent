@@ -96,7 +96,7 @@ router.get("/projects/:projectId/files", (req, res) => {
   res.json({ files });
 });
 
-// GET /api/projects/:projectId/file?path=src/index.ts
+// GET /api/projects/:projectId/file?path=src/index.ts  (text)
 router.get("/projects/:projectId/file", (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -110,6 +110,29 @@ router.get("/projects/:projectId/file", (req, res) => {
   if (!fs.existsSync(abs)) { res.status(404).json({ error: "File not found" }); return; }
   const content = fs.readFileSync(abs, "utf-8");
   res.json({ path: filePath, content });
+});
+
+// GET /api/projects/:projectId/file-raw?path=images/hero.png  (binary — images etc.)
+router.get("/projects/:projectId/file-raw", (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).send("Not authenticated"); return; }
+  const project = findById<any>("projects", req.params.projectId);
+  if (!project || project.userId !== userId) { res.status(404).send("Not found"); return; }
+  const filePath = req.query.path as string;
+  if (!filePath) { res.status(400).send("path required"); return; }
+  const wsDir = getWorkspaceDir(req.params.projectId);
+  const abs = sanitizePath(wsDir, filePath);
+  if (!abs || !fs.existsSync(abs)) { res.status(404).send("File not found"); return; }
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const mimeMap: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+    gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+    pdf: "application/pdf", mp4: "video/mp4", webm: "video/webm",
+  };
+  const mime = mimeMap[ext] ?? "application/octet-stream";
+  res.setHeader("Content-Type", mime);
+  res.setHeader("Cache-Control", "private, max-age=60");
+  res.send(fs.readFileSync(abs));
 });
 
 // PUT /api/projects/:projectId/file
