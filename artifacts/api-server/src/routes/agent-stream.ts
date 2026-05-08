@@ -1909,11 +1909,11 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   req.on("close", () => { clientDisconnected = true; });
   req.on("aborted", () => { clientDisconnected = true; });
 
-  // Send SSE keepalive ping every 8 seconds to prevent proxy/browser timeouts
+  // Send SSE keepalive ping every 5 seconds to prevent proxy/browser timeouts
   const keepAliveInterval = setInterval(() => {
     if (clientDisconnected) { clearInterval(keepAliveInterval); return; }
     try { res.write(": ping\n\n"); (res as any).flush?.(); } catch { clearInterval(keepAliveInterval); clientDisconnected = true; }
-  }, 8000);
+  }, 5000);
 
   const sendEvent = (event: string, data: unknown) => {
     if (clientDisconnected) return;
@@ -2094,7 +2094,7 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   agentLog("INFO", req.params.projectId, "agent_start", {
     model,
     plan: (users[0] as any)?.plan ?? "free",
-    msgLen: content.length,
+    msgLen: content?.length ?? 0,
     historyCount: allMsgs.length,
   });
 
@@ -2134,12 +2134,28 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
       }
 
       let stream: any;
-      try {
-        stream = await client.chat.completions.create(reqParams);
-      } catch (err: any) {
-        sendEvent("error", { message: `API error: ${err.message}` });
-        break;
+      let apiAttempt = 0;
+      while (apiAttempt < 3) {
+        try {
+          stream = await Promise.race([
+            client.chat.completions.create(reqParams),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("API timeout: no response after 90s")), 90000)
+            ),
+          ]);
+          break;
+        } catch (err: any) {
+          apiAttempt++;
+          agentLog("WARN", req.params.projectId, "api_error_retry", { attempt: apiAttempt, message: err.message, iteration: iterations });
+          if (apiAttempt >= 3) {
+            sendEvent("error", { message: `API error after ${apiAttempt} attempts: ${err.message}` });
+            continueLoop = false;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 1500 * apiAttempt));
+        }
       }
+      if (!stream) break;
 
       let iterText = "";
       let thinkBuffer = "";
@@ -2202,12 +2218,17 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
           }
         }
       } catch (streamErr: any) {
-        // Stream error — log it and retry the iteration (up to 2 retries)
         agentLog("ERROR", req.params.projectId, "stream_error", { message: (streamErr as any)?.message, iteration: iterations });
-        sendEvent("notify", { text: `⚠️ Stream interrupted (iteration ${iterations}) — retrying...` });
-        // Pop the malformed assistant message we just pushed before retrying
-        if (messages[messages.length - 1]?.role === "assistant") messages.pop();
-        iterations--; // Don't count this failed iteration
+        // Only retry early iterations to avoid infinite loops
+        if (iterations <= 3) {
+          sendEvent("notify", { text: `Stream interrupted — retrying...` });
+          if (messages[messages.length - 1]?.role === "assistant") messages.pop();
+          iterations--;
+          continue;
+        }
+        // For later iterations, treat as a non-fatal error and end the loop
+        sendEvent("notify", { text: `Stream interrupted at step ${iterations}. Progress has been saved.` });
+        continueLoop = false;
         continue;
       }
 

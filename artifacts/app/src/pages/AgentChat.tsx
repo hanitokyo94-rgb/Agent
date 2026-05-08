@@ -33,6 +33,7 @@ interface Attachment {
   type: string;
   url?: string;
   content?: string;
+  size?: number;
 }
 
 interface ToolEvent {
@@ -95,25 +96,57 @@ function buildStepsLabel(tools: ToolEvent[]): string {
   return parts.slice(0, 3).join(" · ");
 }
 
-const TOOL_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
-  file_write:           { label: "Writing",       icon: "✏️",  color: "blue" },
-  file_read:            { label: "Reading",        icon: "📖", color: "slate" },
-  file_str_replace:     { label: "Editing",        icon: "🔧", color: "amber" },
-  file_find_by_name:    { label: "Finding files",  icon: "🔍", color: "slate" },
-  file_find_in_content: { label: "Searching",      icon: "🔎", color: "slate" },
-  file_list:            { label: "Listing files",  icon: "📂", color: "slate" },
-  file_delete:          { label: "Deleting",       icon: "🗑️", color: "red" },
-  shell_exec:           { label: "Running",        icon: "⚡", color: "violet" },
-  install_packages:     { label: "Installing",     icon: "📦", color: "orange" },
-  fetch_url:            { label: "Fetching",       icon: "🌐", color: "cyan" },
-  web_search:           { label: "Searching web",  icon: "🔍", color: "cyan" },
-  set_secret:           { label: "Storing secret", icon: "🔐", color: "yellow" },
-  get_secrets:          { label: "Reading secrets",icon: "🔑", color: "yellow" },
-  request_secret:       { label: "Needs key",      icon: "🔑", color: "orange" },
-  deploy_to_vercel:     { label: "Deploying",      icon: "🚀", color: "emerald" },
-  expo_snack:           { label: "Uploading to Expo", icon: "📱", color: "emerald" },
-  message_notify:       { label: "Notify",         icon: "💬", color: "blue" },
-  task_done:            { label: "Complete",        icon: "✅", color: "emerald" },
+
+const TOOL_ICONS: Record<string, React.ReactNode> = {
+  file_write:           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  file_read:            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
+  file_str_replace:     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>,
+  file_find_by_name:    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  file_find_in_content: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  file_list:            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
+  file_delete:          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>,
+  shell_exec:           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>,
+  shell_background:     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>,
+  install_packages:     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>,
+  fetch_url:            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>,
+  web_search:           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  set_secret:           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
+  get_secrets:          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>,
+  request_secret:       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
+  deploy_to_vercel:     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>,
+  expo_snack:           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>,
+  message_notify:       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>,
+  task_done:            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+  generate_image:       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
+  git_push:             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>,
+  build_preview:        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+};
+
+const _TI_DEFAULT = <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
+
+const TOOL_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+  file_write:           { label: "Writing",          icon: TOOL_ICONS.file_write,       color: "blue" },
+  file_read:            { label: "Reading",           icon: TOOL_ICONS.file_read,        color: "slate" },
+  file_str_replace:     { label: "Editing",           icon: TOOL_ICONS.file_str_replace, color: "amber" },
+  file_find_by_name:    { label: "Finding files",     icon: TOOL_ICONS.file_find_by_name,    color: "slate" },
+  file_find_in_content: { label: "Searching",         icon: TOOL_ICONS.file_find_in_content, color: "slate" },
+  file_list:            { label: "Listing files",     icon: TOOL_ICONS.file_list,        color: "slate" },
+  file_delete:          { label: "Deleting",          icon: TOOL_ICONS.file_delete,      color: "red" },
+  shell_exec:           { label: "Running",           icon: TOOL_ICONS.shell_exec,       color: "violet" },
+  shell_background:     { label: "Running (bg)",      icon: TOOL_ICONS.shell_background, color: "violet" },
+  install_packages:     { label: "Installing",        icon: TOOL_ICONS.install_packages, color: "orange" },
+  fetch_url:            { label: "Fetching",          icon: TOOL_ICONS.fetch_url,        color: "cyan" },
+  web_search:           { label: "Searching web",     icon: TOOL_ICONS.web_search,       color: "cyan" },
+  set_secret:           { label: "Storing secret",    icon: TOOL_ICONS.set_secret,       color: "yellow" },
+  get_secrets:          { label: "Reading secrets",   icon: TOOL_ICONS.get_secrets,      color: "yellow" },
+  request_secret:       { label: "Needs key",         icon: TOOL_ICONS.request_secret,   color: "orange" },
+  deploy_to_vercel:     { label: "Deploying",         icon: TOOL_ICONS.deploy_to_vercel, color: "emerald" },
+  expo_snack:           { label: "Uploading to Expo", icon: TOOL_ICONS.expo_snack,       color: "emerald" },
+  message_notify:       { label: "Notify",            icon: TOOL_ICONS.message_notify,   color: "blue" },
+  task_done:            { label: "Complete",          icon: TOOL_ICONS.task_done,        color: "emerald" },
+  generate_image:       { label: "Generating image",  icon: TOOL_ICONS.generate_image,   color: "purple" },
+  git_push:             { label: "Pushing to Git",    icon: TOOL_ICONS.git_push,         color: "slate" },
+  build_preview:        { label: "Building preview",  icon: TOOL_ICONS.build_preview,    color: "teal" },
 };
 
 const EXAMPLES = [
@@ -259,18 +292,18 @@ function shortFilename(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
-function fileTypeIcon(name: string): string {
+function fileTypeIcon(name: string): React.ReactNode {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  if (["ts", "tsx"].includes(ext)) return "🔷";
-  if (["js", "jsx"].includes(ext)) return "🟡";
-  if (["json"].includes(ext)) return "{}";
-  if (["css", "scss"].includes(ext)) return "🎨";
-  if (["html"].includes(ext)) return "🌐";
-  if (["md"].includes(ext)) return "📝";
-  if (["py"].includes(ext)) return "🐍";
-  if (["sh", "bash"].includes(ext)) return "⚡";
-  if (["env"].includes(ext)) return "🔐";
-  return "📄";
+  if (["ts", "tsx"].includes(ext)) return <span className="text-[9px] font-bold text-blue-400 leading-none">TS</span>;
+  if (["js", "jsx"].includes(ext)) return <span className="text-[9px] font-bold text-yellow-400 leading-none">JS</span>;
+  if (["json"].includes(ext)) return <span className="text-[9px] font-bold text-orange-400 leading-none">{"{}"}</span>;
+  if (["css", "scss"].includes(ext)) return <span className="text-[9px] font-bold text-pink-400 leading-none">CSS</span>;
+  if (["html"].includes(ext)) return <span className="text-[9px] font-bold text-orange-500 leading-none">HTM</span>;
+  if (["md"].includes(ext)) return <span className="text-[9px] font-bold text-slate-400 leading-none">MD</span>;
+  if (["py"].includes(ext)) return <span className="text-[9px] font-bold text-green-400 leading-none">PY</span>;
+  if (["sh", "bash"].includes(ext)) return <span className="text-[9px] font-bold text-purple-400 leading-none">SH</span>;
+  if (["env"].includes(ext)) return <span className="text-[9px] font-bold text-amber-400 leading-none">ENV</span>;
+  return <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
 }
 
 function extractUrl(text: string): string | null {
@@ -916,6 +949,11 @@ export function AgentChat() {
         signal: abortRef.current.signal,
       });
 
+      if (!res.ok) {
+        let errMsg = `Server error ${res.status}`;
+        try { const j = await res.json(); errMsg = j.error || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
       if (!res.body) throw new Error("No response body");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -1596,8 +1634,12 @@ export function AgentChat() {
                         {isImg && a.url ? (
                           <img src={a.url} alt={a.name} className="w-9 h-9 object-cover shrink-0 rounded-l-xl" />
                         ) : (
-                          <div className={`w-9 h-9 flex items-center justify-center shrink-0 text-base rounded-l-xl ${isZip ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"}`}>
-                            {isZip ? "🗜️" : "📄"}
+                          <div className={`w-9 h-9 flex items-center justify-center shrink-0 rounded-l-xl ${isZip ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"}`}>
+                            {isZip ? (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            ) : (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            )}
                           </div>
                         )}
                         <div className="min-w-0 py-1.5">
@@ -1691,7 +1733,7 @@ export function AgentChat() {
                               onMouseDown={(e) => { e.preventDefault(); selectMentionFile(f.path); }}
                               className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted transition-colors"
                             >
-                              <span className="text-xs opacity-60">{f.path.endsWith(".tsx") || f.path.endsWith(".ts") ? "📘" : f.path.endsWith(".json") ? "📋" : f.path.endsWith(".css") ? "🎨" : "📄"}</span>
+                              <span className="w-4 h-4 flex items-center justify-center opacity-60">{fileTypeIcon(f.path.split("/").pop() ?? f.path)}</span>
                               <span className="text-xs font-mono text-foreground truncate">{f.path}</span>
                             </button>
                           ))}
@@ -2489,7 +2531,7 @@ function StepsSummaryModal({
                   );
                 }
                 const { tool, op } = item;
-                const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
+                const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: _TI_DEFAULT, color: "slate" };
                 const isRunning = tool.status === "running";
                 const isFile = op !== null;
                 const title = isFile
@@ -2748,7 +2790,7 @@ function ShellOutputModal({ tool, onClose }: { tool: ToolEvent; onClose: () => v
 
 // ── Generic tool result modal ─────────────────────────────────────────
 function GenericToolModal({ tool, onClose }: { tool: ToolEvent; onClose: () => void }) {
-  const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
+  const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: _TI_DEFAULT, color: "slate" };
   const detail = tool.args.url || tool.args.file || tool.args.path || "";
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
@@ -2756,7 +2798,7 @@ function GenericToolModal({ tool, onClose }: { tool: ToolEvent; onClose: () => v
       <div className="relative bg-background w-full max-w-lg max-h-[70dvh] rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-border">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/60 shrink-0">
           <div className="flex items-center gap-2.5">
-            <span className="text-xl">{cfg.icon}</span>
+            <span className="w-5 h-5 flex items-center justify-center text-muted-foreground">{cfg.icon}</span>
             <div>
               <h3 className="font-semibold text-sm text-foreground">{cfg.label}</h3>
               {detail && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs font-mono">{detail}</p>}
@@ -2786,7 +2828,7 @@ function ExpoSnackCard({ snack }: { snack: { url: string; qrUrl: string; snackId
   return (
     <div className="mt-2 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl overflow-hidden bg-emerald-50/40 dark:bg-emerald-900/10">
       <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/10 border-b border-emerald-200 dark:border-emerald-800/60">
-        <span className="text-base">📱</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-600"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
         <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Live on Expo Snack</span>
         <span className="ml-auto text-[11px] text-emerald-600/70 dark:text-emerald-400/60">Test on your phone</span>
       </div>
@@ -2911,7 +2953,13 @@ function MessageBubble({
                 }
                 return (
                   <div key={i} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl border text-xs ${isZip ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50" : "bg-muted border-border"}`}>
-                    <span className="text-base shrink-0">{isZip ? "🗜️" : "📄"}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {isZip ? (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      )}
+                    </span>
                     <div>
                       <p className="font-medium truncate max-w-[160px]">{a.name}</p>
                       <p className="text-muted-foreground">{isZip ? "Archive" : ext}</p>
@@ -3011,7 +3059,7 @@ function MessageBubble({
             <div className="mt-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
               <div className="space-y-px">
                 {visibleTools.map((tool, i) => {
-                  const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: "🔧", color: "slate" };
+                  const cfg = TOOL_CONFIG[tool.name] ?? { label: tool.name, icon: _TI_DEFAULT, color: "slate" };
                   const op = FILE_TOOL_NAMES.includes(tool.name) ? getFileOp(tool) : null;
                   const isClickable = tool.status === "done" && !!tool.result;
                   const detail = op
