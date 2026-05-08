@@ -3268,6 +3268,8 @@ function BoboDatabaseModal({
     items: Array<{ key: string; type: string; size: number }>;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"overview" | "data">("overview");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -3281,124 +3283,219 @@ function BoboDatabaseModal({
 
   const usedPct = stats ? Math.min(100, Math.round((stats.usedKB / 1024 / stats.maxMB) * 100)) : 0;
 
+  function typeColor(type: string) {
+    if (type === "object") return "text-blue-400 bg-blue-500/10 border-blue-500/20";
+    if (type === "array") return "text-violet-400 bg-violet-500/10 border-violet-500/20";
+    if (type === "string") return "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+    if (type === "number") return "text-amber-400 bg-amber-500/10 border-amber-500/20";
+    return "text-white/30 bg-white/5 border-white/10";
+  }
+
+  function typeDot(type: string) {
+    if (type === "object") return "bg-blue-400";
+    if (type === "array") return "bg-violet-400";
+    if (type === "string") return "bg-emerald-400";
+    if (type === "number") return "bg-amber-400";
+    return "bg-white/30";
+  }
+
+  const selectedItem = stats?.items.find((i) => i.key === selectedKey) ?? null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-background w-full sm:max-w-md max-h-[80dvh] rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
-        <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
-          <div className="w-10 h-1 bg-muted-foreground/20 rounded-full" />
-        </div>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600">
-                <ellipse cx="12" cy="5" rx="9" ry="3"/>
-                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-              </svg>
-            </div>
-            <h3 className="font-semibold text-sm">Databobo Storage</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[#111213] border border-white/[0.08] w-full max-w-2xl rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in zoom-in-95 fade-in-0 duration-200" style={{ maxHeight: "min(680px, 90dvh)" }}>
+
+        {/* Header */}
+        <div className="flex items-center gap-3 px-5 py-3.5 border-b border-white/[0.07] shrink-0">
+          <div className="w-7 h-7 rounded-lg bg-blue-500/15 border border-blue-500/25 flex items-center justify-center">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-400">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+            </svg>
           </div>
-          <button onClick={onClose} className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground transition-colors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-white/80">Databobo</p>
+            <p className="text-[10.5px] text-white/30">Key-value storage for your project</p>
+          </div>
+          <div className="flex items-center gap-1 bg-white/[0.04] rounded-lg p-0.5">
+            {(["overview", "data"] as const).map((t) => (
+              <button key={t} onClick={() => setActiveTab(t)}
+                className={cn("px-3 py-1 rounded-md text-[11.5px] font-medium transition-all capitalize",
+                  activeTab === t ? "bg-white/[0.08] text-white/75" : "text-white/30 hover:text-white/55")}>
+                {t === "overview" ? "Overview" : "Data"}
+              </button>
+            ))}
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-white/5 flex items-center justify-center text-white/30 hover:text-white/60 transition-colors ml-1">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {loading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-8 rounded-xl bg-muted animate-pulse" />
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center py-16">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center animate-pulse">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-400">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                </svg>
+              </div>
+              <p className="text-[12px] text-white/25">Loading storage…</p>
+            </div>
+          </div>
+        ) : !stats ? (
+          <div className="flex-1 flex items-center justify-center py-16">
+            <p className="text-[13px] text-white/30">Failed to load storage data</p>
+          </div>
+        ) : activeTab === "overview" ? (
+          <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            {/* Stats cards */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Total keys", value: stats.keyCount, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>, color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
+                { label: "Unique users", value: stats.userCount, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-8 8-8s8 4 8 8"/></svg>, color: "text-violet-400 bg-violet-500/10 border-violet-500/20" },
+                { label: "Storage used", value: `${stats.usedKB} KB`, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
+              ].map((s) => (
+                <div key={s.label} className={cn("rounded-xl p-4 border", s.color)}>
+                  <div className="mb-2 opacity-70">{s.icon}</div>
+                  <div className="text-[18px] font-bold text-white/80">{s.value}</div>
+                  <div className="text-[10.5px] text-white/30 mt-0.5">{s.label}</div>
+                </div>
               ))}
             </div>
-          ) : stats ? (
-            <>
-              {/* Stats row */}
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label: "Keys", value: stats.keyCount, icon: "🔑" },
-                  { label: "Users", value: stats.userCount, icon: "👤" },
-                  { label: "Used", value: `${stats.usedKB} KB`, icon: "💾" },
-                ].map((s) => (
-                  <div key={s.label} className="bg-muted/50 rounded-xl p-3 text-center border border-border/50">
-                    <div className="text-lg">{s.icon}</div>
-                    <div className="text-lg font-bold mt-1">{s.value}</div>
-                    <div className="text-[10px] text-muted-foreground">{s.label}</div>
+
+            {/* Storage bar */}
+            <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="text-white/40 font-medium">Storage quota</span>
+                <span className="text-white/55 font-semibold">{stats.usedKB} KB <span className="text-white/25 font-normal">/ {stats.maxMB} MB</span></span>
+              </div>
+              <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
+                <div className={cn("h-full rounded-full transition-all", usedPct >= 80 ? "bg-red-500" : usedPct >= 50 ? "bg-amber-500" : "bg-blue-500")}
+                  style={{ width: `${usedPct}%` }} />
+              </div>
+              <p className="text-[10.5px] text-white/20">{usedPct}% used · {stats.maxMB * 1024 - stats.usedKB} KB free</p>
+            </div>
+
+            {/* Quick actions */}
+            <div>
+              <p className="text-[11px] font-semibold text-white/25 uppercase tracking-wider mb-3">Quick actions</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { onAsk("Set up Bobo Data integration — show me how to store and retrieve data using the Bobo Data API"); onClose(); }}
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all text-left group">
+                  <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-blue-400"><path d="M12 5v14M5 12h14"/></svg>
                   </div>
-                ))}
+                  <div>
+                    <p className="text-[12px] font-semibold text-white/65 group-hover:text-white/80 transition-colors">Setup Bobo Data</p>
+                    <p className="text-[10.5px] text-white/25">Integrate into project</p>
+                  </div>
+                </button>
+                <button onClick={() => setActiveTab("data")}
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all text-left group">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </div>
+                  <div>
+                    <p className="text-[12px] font-semibold text-white/65 group-hover:text-white/80 transition-colors">Browse Data</p>
+                    <p className="text-[10.5px] text-white/25">{stats.keyCount} keys stored</p>
+                  </div>
+                </button>
               </div>
-
-              {/* Storage bar */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Storage used</span>
-                  <span className="font-medium">{stats.usedKB} KB / {stats.maxMB} MB</span>
-                </div>
-                <div className="h-2 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-blue-500 transition-all"
-                    style={{ width: `${usedPct}%` }}
-                  />
-                </div>
-                <p className="text-[10px] text-muted-foreground">{usedPct}% of 100 MB used</p>
+            </div>
+          </div>
+        ) : (
+          /* Data tab — two-panel layout */
+          <div className="flex-1 flex min-h-0">
+            {/* Left: key tree */}
+            <div className="w-44 shrink-0 border-r border-white/[0.06] flex flex-col">
+              <div className="px-3 py-2.5 border-b border-white/[0.05]">
+                <p className="text-[10.5px] font-semibold text-white/25 uppercase tracking-wider">Keys ({stats.items.length})</p>
               </div>
+              <div className="flex-1 overflow-y-auto py-1">
+                {stats.items.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full py-8 text-center px-3">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/15 mb-2">
+                      <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                    </svg>
+                    <p className="text-[11px] text-white/20">No keys yet</p>
+                  </div>
+                ) : (
+                  stats.items.map((item) => (
+                    <button key={item.key} onClick={() => setSelectedKey(item.key)}
+                      className={cn("w-full flex items-center gap-2 px-3 py-2 text-left transition-colors",
+                        selectedKey === item.key ? "bg-blue-500/10 text-blue-300" : "hover:bg-white/[0.04] text-white/50")}>
+                      <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", typeDot(item.type))} />
+                      <span className="text-[11.5px] font-mono truncate flex-1">{item.key}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
 
-              {/* Keys list */}
-              {stats.items.length > 0 ? (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Stored keys ({stats.items.length})</p>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                    {stats.items.map((item) => (
-                      <div key={item.key} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border/40">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-mono text-foreground/90 truncate">{item.key}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{item.type} · {item.size} chars</p>
-                        </div>
-                        <span className={cn(
-                          "text-[10px] px-1.5 py-0.5 rounded-full font-medium",
-                          item.type === "object" ? "bg-blue-500/10 text-blue-600" :
-                          item.type === "array" ? "bg-violet-500/10 text-violet-600" :
-                          item.type === "string" ? "bg-emerald-500/10 text-emerald-600" :
-                          "bg-muted text-muted-foreground"
-                        )}>
-                          {item.type}
-                        </span>
+            {/* Right: detail panel */}
+            <div className="flex-1 flex flex-col min-w-0">
+              {selectedItem ? (
+                <>
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] shrink-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", typeDot(selectedItem.type))} />
+                      <p className="text-[12.5px] font-mono font-medium text-white/70 truncate">{selectedItem.key}</p>
+                    </div>
+                    <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium shrink-0", typeColor(selectedItem.type))}>
+                      {selectedItem.type}
+                    </span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-5">
+                    <div className="grid grid-cols-2 gap-3 mb-5">
+                      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+                        <p className="text-[10.5px] text-white/25 mb-1">Type</p>
+                        <p className="text-[13px] font-medium text-white/60 capitalize">{selectedItem.type}</p>
                       </div>
-                    ))}
+                      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+                        <p className="text-[10.5px] text-white/25 mb-1">Size</p>
+                        <p className="text-[13px] font-medium text-white/60">{selectedItem.size} chars</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { onAsk(`Show me the value stored in Bobo Data for key "${selectedItem.key}"`); onClose(); }}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/15 transition-colors text-[12.5px] font-medium"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      Ask agent to inspect this key
+                    </button>
                   </div>
-                </div>
+                </>
               ) : (
-                <div className="text-center py-6">
-                  <div className="text-3xl mb-2">📭</div>
-                  <p className="text-sm text-muted-foreground">No data stored yet</p>
-                  <p className="text-xs text-muted-foreground/70 mt-1">Ask the agent to integrate Bobo Data into your project</p>
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+                  <div className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-center mb-3">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/20">
+                      <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                    </svg>
+                  </div>
+                  {stats.items.length === 0 ? (
+                    <>
+                      <p className="text-[13px] font-medium text-white/40">No data stored</p>
+                      <p className="text-[12px] text-white/20 mt-1">Ask the agent to set up Bobo Data</p>
+                      <button onClick={() => { onAsk("Set up Bobo Data integration in my project"); onClose(); }}
+                        className="mt-4 px-4 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/15 transition-colors text-[12px] font-medium">
+                        Setup Bobo Data →
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[13px] font-medium text-white/40">Select a key</p>
+                      <p className="text-[12px] text-white/20 mt-1">Choose a key from the list to inspect</p>
+                    </>
+                  )}
                 </div>
               )}
-
-              {/* Quick actions */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  onClick={() => onAsk("Set up Bobo Data integration — show me how to store and retrieve data from my project using Bobo Data API")}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-muted/50 border border-border hover:bg-muted transition-colors text-xs font-medium"
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-                  Setup Bobo Data
-                </button>
-                <button
-                  onClick={() => onAsk("Show me all the data stored in Bobo Data for this project using get_secrets and listing the keys")}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-muted/50 border border-border hover:bg-muted transition-colors text-xs font-medium"
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  View Data
-                </button>
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-6">Failed to load stats.</p>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
