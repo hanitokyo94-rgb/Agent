@@ -119,5 +119,23 @@
     "creditsUsed": 0,
     "plan": "free",
     "createdAt": "2026-05-09T06:31:35.934Z"
+  },
+  {
+    "id": "be66d9ff-0561-45dd-962b-4ff98251bc8d",
+    "name": "haniiii",
+    "email": "hanitokyo93@gmail.com",
+    "passwordHash": "$2b$10$iGiY3YzQlkNrBeIIfOMTr.JP.ow3JAhRYzPrMLu4OKbh7w3KnzD2K",
+    "avatar": null,
+    "onboardingCompleted": false,
+    "emailVerified": false,
+    "skillLevel": null,
+    "category": null,
+    "adSource": null,
+    "country": "DZ",
+    "language": "en",
+    "credits": 20,
+    "creditsUsed": 0,
+    "plan": "free",
+    "createdAt": "2026-05-09T06:33:19.840Z"
   }
 ]

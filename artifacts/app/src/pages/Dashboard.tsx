@@ -8,6 +8,7 @@ import {
 import { Sidebar } from "@/components/Sidebar";
 import { formatRelativeTime, cn } from "@/lib/utils";
 import { OtpVerifyBanner } from "@/components/OtpVerifyBanner";
+import { UserMenu } from "@/components/UserMenu";
 
 const EXAMPLES = [
   "Build a task manager with login and data storage",
@@ -165,10 +166,7 @@ export function Dashboard() {
             <span className="text-white/50 font-medium">Dashboard</span>
           </div>
           <span className="font-medium text-[13px] text-white/55 md:hidden">Dashboard</span>
-          <button onClick={() => setLocation("/settings")}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold bg-white/10 text-white/65 hover:bg-white/15 transition-all">
-            {user?.name?.charAt(0).toUpperCase() ?? "U"}
-          </button>
+          {user && <UserMenu user={user as any} />}
         </div>
 
         {/* Scrollable content */}
