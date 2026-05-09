@@ -160,13 +160,6 @@ export function Dashboard() {
     ? allProjects.filter((p) => now - new Date(p.updatedAt).getTime() < 7 * 86400000)
     : projectTab === "github" ? allProjects.filter((p) => p.githubRepo) : allProjects;
 
-  const stats = [
-    { label: "Projects", value: allProjects.length, type: "code" as const },
-    { label: "This Week", value: allProjects.filter((p) => now - new Date(p.updatedAt).getTime() < 7 * 86400000).length, type: "calendar" as const },
-    { label: "GitHub", value: allProjects.filter((p) => p.githubRepo).length, type: "github" as const },
-    { label: "Credits Left", value: user ? Math.max(0, user.credits - user.creditsUsed) : "—", type: "credits" as const },
-  ];
-
   return (
     <div className="flex h-[100dvh] bg-black overflow-hidden">
       {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/70 backdrop-blur-md" onClick={() => setSidebarOpen(false)} />}
@@ -199,28 +192,20 @@ export function Dashboard() {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}>
-          <div className="max-w-3xl mx-auto px-5 pt-10 pb-20">
+          <div className="max-w-3xl mx-auto px-5 pt-12 pb-20">
 
-            {/* Greeting */}
+            {/* Greeting — big editorial style */}
             <div className="mb-10">
-              <h1 className="text-[28px] sm:text-[34px] font-black text-white tracking-tight leading-tight">
-                {firstName ? `Hello, ${firstName}` : "Dashboard"}
+              <p className="text-[11px] font-bold text-white/25 uppercase tracking-[0.2em] mb-3">
+                Welcome back, {firstName}
+              </p>
+              <h1 className="text-[clamp(2rem,5vw,3.2rem)] font-black text-white tracking-tight leading-[1.05]">
+                What are we<br />
+                <span className="text-transparent bg-clip-text" style={{ backgroundImage: "linear-gradient(90deg,#f59e0b,#f97316)" }}>
+                  building today?
+                </span>
               </h1>
-              <p className="text-[14px] text-white/30 mt-1.5 font-medium">What are we building today?</p>
             </div>
-
-            {/* Stats */}
-            {allProjects.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-                {stats.map((s) => (
-                  <div key={s.label} className="group bg-white/[0.03] border border-white/[0.06] rounded-2xl px-4 py-4 hover:bg-white/[0.05] hover:border-white/[0.1] transition-all cursor-default">
-                    <div className="mb-3"><StatIcon3D type={s.type} /></div>
-                    <p className="text-[24px] font-black text-white leading-none">{s.value}</p>
-                    <p className="text-[11px] text-white/25 mt-1.5 font-semibold uppercase tracking-wider">{s.label}</p>
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Create card */}
             <div className={cn(
