@@ -1377,9 +1377,9 @@ export function AgentChat() {
   ];
 
   return (
-    <div className="flex h-[100dvh] bg-background overflow-hidden">
+    <div className="flex h-[100dvh] bg-black overflow-hidden">
       {sidebarOpen && (
-        <div className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-0 z-30 bg-black/70 backdrop-blur-md" onClick={() => setSidebarOpen(false)} />
       )}
       <div className={`fixed inset-y-0 left-0 z-40 transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 md:flex`}>
         <Sidebar currentProjectId={projectId} onClose={() => setSidebarOpen(false)} />
@@ -1389,7 +1389,7 @@ export function AgentChat() {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
           {/* Header */}
-          <header className="flex items-center gap-2 px-3 h-12 border-b border-border/60 shrink-0 bg-background/95 backdrop-blur z-10">
+          <header className="flex items-center gap-2 px-3 h-12 border-b border-white/[0.06] shrink-0 bg-black/90 backdrop-blur-xl z-10">
             <button onClick={() => setSidebarOpen(true)} className="md:hidden p-1.5 rounded-lg hover:bg-muted transition-colors">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
@@ -1530,18 +1530,18 @@ export function AgentChat() {
                 </button>
 
                 {showMenu && (
-                  <div className="absolute right-0 top-full mt-1.5 w-52 bg-popover border border-border rounded-xl shadow-lg z-50 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100">
+                  <div className="absolute right-0 top-full mt-1.5 w-52 bg-[#111] border border-white/[0.08] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100">
                     <div className="py-1">
                       {menuItems.map((item, i) => {
                         if ((item as any).separator) {
-                          return <div key={i} className="h-px bg-border mx-2 my-1" />;
+                          return <div key={i} className="h-px bg-white/[0.06] mx-2 my-1" />;
                         }
                         return (
                           <button
                             key={i}
                             onClick={(item as any).onClick}
                             disabled={(item as any).disabled}
-                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-white/80 hover:bg-white/[0.06] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <span className="text-muted-foreground shrink-0">{(item as any).icon}</span>
                             <span className="flex-1 text-left">{(item as any).label}</span>
@@ -1562,7 +1562,7 @@ export function AgentChat() {
 
           {/* Deploy banner */}
           {deployBanner && deployBanner !== "deploying" && (
-            <div className="flex items-center justify-between gap-3 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-200 dark:border-emerald-800 shrink-0">
+            <div className="flex items-center justify-between gap-3 px-4 py-2 bg-emerald-900/20 border-b border-emerald-700/30 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-base">🚀</span>
                 <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Deployed!</span>
@@ -1621,7 +1621,7 @@ export function AgentChat() {
           </div>
 
           {/* Input area */}
-          <div className="border-t border-border/60 px-4 py-3 shrink-0 bg-background">
+          <div className="border-t border-white/[0.06] px-4 py-3 shrink-0 bg-black/90 backdrop-blur-xl">
             <div className="max-w-2xl mx-auto space-y-2">
               {pendingAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -1718,10 +1718,10 @@ export function AgentChat() {
                 {/* @ mention file picker — floats above input */}
                 {showMentionMenu && (
                   <div className="absolute bottom-full left-0 right-0 mb-2 z-50">
-                    <div className="bg-popover border border-border rounded-xl shadow-lg overflow-hidden">
-                      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/60">
-                        <span className="text-xs font-medium text-muted-foreground">@ mention file</span>
-                        <span className="ml-auto text-[10px] text-muted-foreground/50">Esc to close</span>
+                    <div className="bg-[#111] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06]">
+                        <span className="text-xs font-medium text-white/50">@ mention file</span>
+                        <span className="ml-auto text-[10px] text-white/30">Esc to close</span>
                       </div>
                       <div className="max-h-48 overflow-y-auto py-1">
                         {files
@@ -1731,7 +1731,7 @@ export function AgentChat() {
                             <button
                               key={f.path}
                               onMouseDown={(e) => { e.preventDefault(); selectMentionFile(f.path); }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted transition-colors"
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.06] transition-colors"
                             >
                               <span className="w-4 h-4 flex items-center justify-center opacity-60">{fileTypeIcon(f.path.split("/").pop() ?? f.path)}</span>
                               <span className="text-xs font-mono text-foreground truncate">{f.path}</span>
@@ -1746,7 +1746,7 @@ export function AgentChat() {
                 )}
 
               <div
-                className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden focus-within:border-border transition-all"
+                className="bg-white/[0.04] border border-white/[0.08] rounded-2xl shadow-sm overflow-hidden focus-within:border-white/[0.15] transition-all"
                 onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
                 onDrop={handleTextareaDrop}
               >
@@ -1874,9 +1874,9 @@ export function AgentChat() {
 
         {/* App Browser Preview Panel — desktop side panel */}
         {showPreviewPanel && previewUrl && !isMobile && (
-          <div className="flex flex-col border-l border-border bg-background shrink-0 overflow-hidden" style={{ width: 520 }}>
+          <div className="flex flex-col border-l border-white/[0.06] bg-[#080808] shrink-0 overflow-hidden" style={{ width: 520 }}>
             {/* Browser chrome */}
-            <div className="flex items-center gap-1 px-2 h-10 bg-muted/50 border-b border-border shrink-0">
+            <div className="flex items-center gap-1 px-2 h-10 bg-white/[0.03] border-b border-white/[0.06] shrink-0">
               <div className="flex items-center gap-1 mr-1">
                 <button
                   onClick={() => setShowPreviewPanel(false)}
@@ -2106,10 +2106,10 @@ export function AgentChat() {
 
         {/* File tree side panel */}
         {fileCount > 0 && !showPreviewPanel && (
-          <div className="hidden lg:flex flex-col w-52 border-l border-border/60 overflow-hidden shrink-0 bg-muted/10">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
-              <span className="text-xs font-medium text-muted-foreground">Files</span>
-              <button onClick={() => setShowFileModal(true)} className="text-xs text-primary/70 hover:text-primary">Open</button>
+          <div className="hidden lg:flex flex-col w-52 border-l border-white/[0.06] overflow-hidden shrink-0 bg-white/[0.02]">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
+              <span className="text-xs font-medium text-white/40">Files</span>
+              <button onClick={() => setShowFileModal(true)} className="text-xs text-amber-500/70 hover:text-amber-400">Open</button>
             </div>
             <div className="flex-1 overflow-y-auto py-1">
               <FileTree files={files} onSelect={() => setShowFileModal(true)} />
@@ -2970,7 +2970,7 @@ function MessageBubble({
             </div>
           )}
           <div className="relative">
-            <div className="bg-muted/70 border border-border/40 px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+            <div className="bg-white/[0.07] border border-white/[0.08] px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed text-white/90 whitespace-pre-wrap">
               {msg.content}
             </div>
             {onCopy && msg.content && (
@@ -3166,7 +3166,7 @@ function MessageBubble({
 
       {/* ── Live deploy card ── */}
       {liveUrl && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/50">
+        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-emerald-900/20 border border-emerald-700/40">
           <span className="text-xl shrink-0">🚀</span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Deployed!</p>
@@ -3268,20 +3268,20 @@ function CodeViewModal({ file, onClose }: { file: { path: string; content: strin
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-background w-full sm:max-w-2xl max-h-[80dvh] rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
+      <div className="relative bg-[#0a0a0a] border border-white/[0.08] w-full sm:max-w-2xl max-h-[80dvh] rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
         <div className="flex justify-center pt-3 pb-1 sm:hidden">
-          <div className="w-10 h-1 bg-muted-foreground/20 rounded-full" />
+          <div className="w-10 h-1 bg-white/20 rounded-full" />
         </div>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-mono font-medium truncate">{file.path.split("/").pop()}</span>
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{getLang(file.path)}</span>
-            <span className="text-xs text-muted-foreground">{lineCount} lines</span>
+            <span className="text-sm font-mono font-medium text-white truncate">{file.path.split("/").pop()}</span>
+            <span className="text-xs text-white/40 bg-white/[0.06] px-2 py-0.5 rounded">{getLang(file.path)}</span>
+            <span className="text-xs text-white/40">{lineCount} lines</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button onClick={() => navigator.clipboard.writeText(file.content)}
-              className="text-xs px-3 py-1.5 rounded-xl bg-muted hover:bg-muted/70 transition-colors">Copy</button>
-            <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-muted transition-colors text-muted-foreground">
+              className="text-xs px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-white/70 transition-colors">Copy</button>
+            <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors text-white/40">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
@@ -3289,12 +3289,12 @@ function CodeViewModal({ file, onClose }: { file: { path: string; content: strin
           </div>
         </div>
         <div className="overflow-auto flex-1 p-4">
-          <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-words">
+          <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-words text-white/70">
             <code>{file.content}</code>
           </pre>
         </div>
-        <div className="px-4 py-2 border-t border-border bg-muted/20 shrink-0">
-          <p className="text-xs text-muted-foreground font-mono">{file.path}</p>
+        <div className="px-4 py-2 border-t border-white/[0.06] bg-white/[0.02] shrink-0">
+          <p className="text-xs text-white/30 font-mono">{file.path}</p>
         </div>
       </div>
     </div>
@@ -3722,23 +3722,24 @@ function SkillsManagerModal({
         onClick={close}
       />
       <div className={cn(
-        "relative bg-background w-full sm:max-w-lg sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden transition-all duration-280 ease-out max-h-[90dvh]",
+        "relative bg-[#0a0a0a] border border-white/[0.08] w-full sm:max-w-lg sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 flex flex-col overflow-hidden transition-all duration-280 ease-out max-h-[90dvh]",
         visible ? "translate-y-0 opacity-100 sm:scale-100" : "translate-y-full sm:translate-y-0 opacity-0 sm:scale-95"
       )}>
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
-          <div className="w-10 h-1 bg-muted-foreground/20 rounded-full" />
+          <div className="w-10 h-1 bg-white/20 rounded-full" />
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06] shrink-0">
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="url(#skillsGrad)" strokeWidth="2">
+              <defs><linearGradient id="skillsGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f59e0b"/><stop offset="100%" stopColor="#f97316"/></linearGradient></defs>
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
             </svg>
-            <h2 className="font-semibold text-[15px]">Skills</h2>
+            <h2 className="font-semibold text-[15px] text-white">Skills</h2>
           </div>
-          <button onClick={close} className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground transition-colors">
+          <button onClick={close} className="w-7 h-7 rounded-full hover:bg-white/[0.06] flex items-center justify-center text-white/40 transition-colors">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -3751,7 +3752,7 @@ function SkillsManagerModal({
             onClick={() => setTab("all")}
             className={cn(
               "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-              tab === "all" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+              tab === "all" ? "bg-white/[0.08] text-white" : "text-white/40 hover:text-white/70"
             )}
           >
             All Skills ({allSkills.length})
@@ -3760,7 +3761,7 @@ function SkillsManagerModal({
             onClick={() => setTab("import")}
             className={cn(
               "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-              tab === "import" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+              tab === "import" ? "bg-white/[0.08] text-white" : "text-white/40 hover:text-white/70"
             )}
           >
             + Import from GitHub
@@ -3772,12 +3773,12 @@ function SkillsManagerModal({
           {tab === "all" && (
             <div className="py-3">
               {/* Built-in */}
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide px-5 mb-2">Built-in</p>
+              <p className="text-[11px] font-semibold text-white/30 uppercase tracking-wide px-5 mb-2">Built-in</p>
               {BUILT_IN_SKILLS.map((skill) => (
                 <button
                   key={skill.id}
                   onClick={() => onSelect(skill)}
-                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-muted/60 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/[0.04] transition-colors text-left"
                 >
                   <span className="text-xl shrink-0 leading-none">{skill.icon}</span>
                   <div className="min-w-0 flex-1">
