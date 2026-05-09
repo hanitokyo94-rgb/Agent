@@ -62,7 +62,7 @@ function FileIcon({ name, className }: { name: string; className?: string }) {
     </svg>
   );
   if (ext === "json") return (
-    <span className="text-[10px] font-mono font-bold text-orange-400 leading-none">{"{}"}</span>
+    <span className="text-[10px] font-mono font-bold text-white/45 leading-none">{"{}"}</span>
   );
   if (["css", "scss"].includes(ext)) return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={cn("text-purple-400", className)}>
@@ -70,7 +70,7 @@ function FileIcon({ name, className }: { name: string; className?: string }) {
     </svg>
   );
   if (ext === "html") return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={cn("text-orange-500", className)}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={cn("text-white/45", className)}>
       <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
     </svg>
   );

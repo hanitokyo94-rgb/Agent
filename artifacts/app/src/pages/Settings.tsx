@@ -32,21 +32,26 @@ const LANGUAGES = [
 interface CustomAIConfig { baseUrl: string; apiKey: string; model: string; enabled: boolean; }
 
 const CONNECTORS = [
-  { id: "github", name: "GitHub", description: "Push & sync project code", color: "#e2e8f0", fields: [{ key: "token", label: "Personal Access Token", placeholder: "ghp_...", secret: true }, { key: "defaultRepo", label: "Default Repository", placeholder: "username/repo" }] },
-  { id: "stripe", name: "Stripe", description: "Accept payments", color: "#635BFF", fields: [{ key: "secretKey", label: "Secret Key", placeholder: "sk_live_...", secret: true }, { key: "webhookSecret", label: "Webhook Secret", placeholder: "whsec_...", secret: true }] },
-  { id: "openai", name: "OpenAI", description: "Use OpenAI APIs in projects", color: "#10a37f", fields: [{ key: "apiKey", label: "API Key", placeholder: "sk-proj-...", secret: true }] },
-  { id: "supabase", name: "Supabase", description: "Postgres + auth + realtime", color: "#3ECF8E", fields: [{ key: "projectUrl", label: "Project URL", placeholder: "https://xxxx.supabase.co" }, { key: "anonKey", label: "Anon Key", placeholder: "eyJhbGci...", secret: true }] },
-  { id: "telegram", name: "Telegram", description: "Build Telegram bots", color: "#2AABEE", fields: [{ key: "botToken", label: "Bot Token", placeholder: "123456789:AAF...", secret: true }] },
-  { id: "gmail", name: "Gmail", description: "Send emails via Gmail API", color: "#EA4335", fields: [{ key: "clientId", label: "Client ID", placeholder: "...apps.googleusercontent.com" }, { key: "clientSecret", label: "Client Secret", placeholder: "GOCSPX-...", secret: true }] },
+  { id: "github", name: "GitHub", description: "Push & sync project code", fields: [{ key: "token", label: "Personal Access Token", placeholder: "ghp_...", secret: true }, { key: "defaultRepo", label: "Default Repository", placeholder: "username/repo" }] },
+  { id: "stripe", name: "Stripe", description: "Accept payments", fields: [{ key: "secretKey", label: "Secret Key", placeholder: "sk_live_...", secret: true }, { key: "webhookSecret", label: "Webhook Secret", placeholder: "whsec_...", secret: true }] },
+  { id: "openai", name: "OpenAI", description: "Use OpenAI APIs in projects", fields: [{ key: "apiKey", label: "API Key", placeholder: "sk-proj-...", secret: true }] },
+  { id: "supabase", name: "Supabase", description: "Postgres + auth + realtime", fields: [{ key: "projectUrl", label: "Project URL", placeholder: "https://xxxx.supabase.co" }, { key: "anonKey", label: "Anon Key", placeholder: "eyJhbGci...", secret: true }] },
+  { id: "telegram", name: "Telegram", description: "Build Telegram bots", fields: [{ key: "botToken", label: "Bot Token", placeholder: "123456789:AAF...", secret: true }] },
+  { id: "gmail", name: "Gmail", description: "Send emails via Gmail API", fields: [{ key: "clientId", label: "Client ID", placeholder: "...apps.googleusercontent.com" }, { key: "clientSecret", label: "Client Secret", placeholder: "GOCSPX-...", secret: true }] },
 ];
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
     <button type="button" onClick={onChange}
-      className={cn("w-10 rounded-full transition-all relative shrink-0 focus:outline-none", checked ? "" : "bg-white/10 border border-white/10")}
-      style={{ height: "22px", background: checked ? "linear-gradient(135deg,#f59e0b,#f97316)" : undefined }}>
-      <div className="w-3.5 h-3.5 bg-white rounded-full absolute top-[3px] transition-transform shadow-sm"
-        style={{ transform: checked ? "translateX(20px)" : "translateX(3px)" }} />
+      className={cn(
+        "relative w-[44px] shrink-0 rounded-full transition-all focus:outline-none border-2 border-transparent",
+        checked ? "bg-white" : "bg-white/10"
+      )}
+      style={{ height: "26px" }}>
+      <div className={cn(
+        "absolute top-[3px] w-[18px] h-[18px] rounded-full transition-transform shadow-sm",
+        checked ? "bg-[#08090A] translate-x-[20px]" : "bg-white/50 translate-x-[3px]"
+      )} />
     </button>
   );
 }
@@ -54,9 +59,9 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
 function Field({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[12.5px] font-semibold text-white/50 mb-1.5">{label}</label>
+      <label className="block text-[12px] font-medium text-white/38 mb-1.5">{label}</label>
       {children}
-      {description && <p className="text-[11px] text-white/20 mt-1.5">{description}</p>}
+      {description && <p className="text-[11px] text-white/20 mt-1.5 leading-relaxed">{description}</p>}
     </div>
   );
 }
@@ -66,22 +71,22 @@ function TextInput({ value, onChange, placeholder, type = "text", mono = false }
 }) {
   return (
     <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-      className={cn("w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.07] text-[13px] text-white/80",
-        "outline-none focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/15 transition-all placeholder:text-white/18",
+      className={cn("w-full px-3.5 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.07] text-[13px] text-white/80",
+        "outline-none focus:border-white/18 focus:bg-white/[0.05] transition-all placeholder:text-white/18",
         mono && "font-mono")} />
   );
 }
 
-function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("bg-white/[0.025] border border-white/[0.07] rounded-2xl overflow-hidden", className)}>{children}</div>;
+function SettingsCard({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn("bg-[#111113] border border-white/[0.07] rounded-xl overflow-hidden", className)}>{children}</div>;
 }
 
 function Row({ label, description, right, border = true }: { label: string; description?: string; right: React.ReactNode; border?: boolean }) {
   return (
     <div className={cn("flex items-center justify-between gap-4 px-5 py-4", border && "border-b border-white/[0.05] last:border-0")}>
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold text-white/70">{label}</p>
-        {description && <p className="text-[11.5px] text-white/28 mt-0.5 leading-snug">{description}</p>}
+        <p className="text-[13px] font-medium text-white/65">{label}</p>
+        {description && <p className="text-[11.5px] text-white/25 mt-0.5 leading-snug">{description}</p>}
       </div>
       <div className="shrink-0">{right}</div>
     </div>
@@ -204,38 +209,38 @@ export function Settings() {
   }
 
   const navItems: { id: SettingsTab; label: string; icon: React.ReactNode; group?: string }[] = [
-    { id: "profile", label: "General", group: "Account", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-8 8-8s8 4 8 8"/></svg> },
-    { id: "subscription", label: "Subscription", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> },
-    { id: "notifications", label: "Notifications", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> },
-    { id: "appearance", label: "Appearance", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 000 20z"/></svg> },
-    { id: "shortcuts", label: "Shortcuts", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h8"/></svg> },
-    { id: "ai", label: "My AI", group: "Developer", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2a2 2 0 012 2v2a2 2 0 01-2 2 2 2 0 01-2-2V4a2 2 0 012-2zm0 16a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2zM2 12a2 2 0 012-2h2a2 2 0 010 4H4a2 2 0 01-2-2zm16 0a2 2 0 012-2h2a2 2 0 010 4h-2a2 2 0 01-2-2z"/></svg> },
-    { id: "integrations", label: "Connectors", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg> },
+    { id: "profile", label: "General", group: "Account", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-8 8-8s8 4 8 8"/></svg> },
+    { id: "subscription", label: "Subscription", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> },
+    { id: "notifications", label: "Notifications", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> },
+    { id: "appearance", label: "Appearance", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 000 20z"/></svg> },
+    { id: "shortcuts", label: "Shortcuts", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h8"/></svg> },
+    { id: "ai", label: "My AI", group: "Developer", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M12 2a2 2 0 012 2v2a2 2 0 01-2 2 2 2 0 01-2-2V4a2 2 0 012-2zm0 16a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2zM2 12a2 2 0 012-2h2a2 2 0 010 4H4a2 2 0 01-2-2zm16 0a2 2 0 012-2h2a2 2 0 010 4h-2a2 2 0 01-2-2z"/></svg> },
+    { id: "integrations", label: "Connectors", icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg> },
   ];
 
   const pageTitle = navItems.find((n) => n.id === activeTab)?.label ?? "Settings";
   const langOptions = LANGUAGES.map((l) => ({ value: l.code, label: l.label }));
 
   return (
-    <div className="flex h-[100dvh] bg-black overflow-hidden">
-      {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/70 backdrop-blur-md" onClick={() => setSidebarOpen(false)} />}
-      <div className={`fixed inset-y-0 left-0 z-40 transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 md:flex`}>
+    <div className="flex h-[100dvh] bg-[#08090A] overflow-hidden">
+      {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />}
+      <div className={`fixed inset-y-0 left-0 z-40 transition-transform duration-250 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 md:flex`}>
         <Sidebar currentProjectId={null} onClose={() => setSidebarOpen(false)} />
       </div>
 
       <div className="flex-1 flex overflow-hidden min-w-0">
         {/* Settings inner nav */}
-        <div className="hidden md:flex flex-col w-52 shrink-0 bg-[#080808] border-r border-white/[0.05] overflow-y-auto">
-          <div className="px-4 py-3.5 border-b border-white/[0.05] shrink-0">
+        <div className="hidden md:flex flex-col w-48 shrink-0 bg-[#09090B] border-r border-white/[0.05] overflow-y-auto">
+          <div className="px-3 py-3 border-b border-white/[0.05] shrink-0">
             <button onClick={() => setLocation("/dashboard")}
-              className="flex items-center gap-2 text-[12.5px] text-white/30 hover:text-white/60 transition-colors font-medium">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              className="flex items-center gap-2 text-[12px] text-white/25 hover:text-white/55 transition-colors font-medium py-1 rounded-lg hover:bg-white/[0.04] px-2 -mx-2 w-full">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
               Back
             </button>
           </div>
-          <div className="flex-1 py-3 px-2.5">
+          <div className="flex-1 py-2.5 px-2">
             {(() => {
               type NavGroup = { label: string; items: Array<typeof navItems[number]> };
               const groups: NavGroup[] = [];
@@ -246,18 +251,18 @@ export function Settings() {
                 else last.items.push(item);
               }
               return groups.map((g, gi) => (
-                <div key={gi} className={gi > 0 ? "mt-5" : ""}>
-                  {g.label && <p className="text-[9.5px] font-black text-white/18 uppercase tracking-widest px-2 mb-2">{g.label}</p>}
+                <div key={gi} className={gi > 0 ? "mt-4" : ""}>
+                  {g.label && <p className="text-[9.5px] font-semibold text-white/18 uppercase tracking-widest px-2 mb-1.5">{g.label}</p>}
                   {g.items.map((item) => {
                     const isActive = activeTab === item.id;
                     return (
                       <button key={item.id} onClick={() => setActiveTab(item.id)}
-                        className={cn("w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] font-semibold transition-all mb-0.5",
-                          isActive ? "bg-amber-500/10 text-amber-300 border border-amber-500/15" : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]")}>
-                        <span className={isActive ? "text-amber-400" : ""}>{item.icon}</span>
+                        className={cn("w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12.5px] font-medium transition-all mb-0.5",
+                          isActive ? "bg-white/[0.08] text-white/90" : "text-white/32 hover:text-white/60 hover:bg-white/[0.04]")}>
+                        <span className={isActive ? "text-white/70" : "text-white/28"}>{item.icon}</span>
                         {item.label}
                         {item.id === "integrations" && Object.keys(connectors).some((k) => isConnected(k)) && (
-                          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400/60 shrink-0" />
                         )}
                       </button>
                     );
@@ -270,146 +275,140 @@ export function Settings() {
 
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex items-center gap-3 px-5 h-[52px] border-b border-white/[0.05] bg-black/80 backdrop-blur-xl shrink-0">
-            <button onClick={() => setSidebarOpen(true)} className="md:hidden p-1.5 rounded-xl hover:bg-white/[0.06] text-white/35">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <div className="flex items-center gap-3 px-5 h-[52px] border-b border-white/[0.05] bg-[#08090A]/90 backdrop-blur-xl shrink-0">
+            <button onClick={() => setSidebarOpen(true)} className="md:hidden p-1.5 rounded-lg hover:bg-white/[0.05] text-white/32">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                 <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
               </svg>
             </button>
             <div className="flex items-center gap-1.5 text-[12px]">
               <span className="text-white/20">Settings</span>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/12">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/12">
                 <polyline points="9 18 15 12 9 6"/>
               </svg>
-              <span className="text-white/55 font-semibold">{pageTitle}</span>
+              <span className="text-white/50 font-medium">{pageTitle}</span>
             </div>
           </div>
 
           {/* Mobile tab bar */}
-          <div className="md:hidden flex overflow-x-auto gap-0.5 px-3 py-2 border-b border-white/[0.05] bg-[#080808] shrink-0" style={{ scrollbarWidth: "none" }}>
+          <div className="md:hidden flex overflow-x-auto gap-0.5 px-3 py-2 border-b border-white/[0.05] bg-[#09090B] shrink-0" style={{ scrollbarWidth: "none" }}>
             {navItems.map((item) => (
               <button key={item.id} onClick={() => setActiveTab(item.id)}
-                className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11.5px] font-semibold whitespace-nowrap shrink-0 transition-all",
-                  activeTab === item.id ? "bg-amber-500/10 text-amber-400 border border-amber-500/15" : "text-white/30 hover:text-white/55")}>
+                className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11.5px] font-medium whitespace-nowrap shrink-0 transition-all",
+                  activeTab === item.id ? "bg-white/[0.08] text-white/85" : "text-white/28 hover:text-white/55")}>
                 {item.icon}{item.label}
               </button>
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
-            <div className="max-w-[640px] mx-auto px-5 sm:px-8 py-8 space-y-8">
+          <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.05) transparent" }}>
+            <div className="max-w-[600px] mx-auto px-5 sm:px-8 py-8 space-y-7">
 
               {/* Profile */}
               {activeTab === "profile" && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div>
-                    <h2 className="text-[20px] font-black text-white">General</h2>
-                    <p className="text-[13px] text-white/28 mt-1">Manage your profile and preferences</p>
+                    <h2 className="text-[18px] font-semibold text-white/90">General</h2>
+                    <p className="text-[12.5px] text-white/28 mt-0.5">Manage your profile and preferences</p>
                   </div>
-                  <Card>
+                  <SettingsCard>
                     <div className="flex items-center gap-4 p-5">
                       {user?.avatar ? (
-                        <img src={user.avatar} className="w-14 h-14 rounded-2xl object-cover shrink-0 ring-1 ring-white/10" alt="avatar"/>
+                        <img src={user.avatar} className="w-12 h-12 rounded-xl object-cover shrink-0 ring-1 ring-white/10" alt="avatar"/>
                       ) : (
-                        <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black shrink-0 text-black"
-                          style={{ background: "linear-gradient(135deg,#f59e0b,#f97316)" }}>
+                        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-semibold shrink-0 bg-white/[0.08] text-white/70">
                           {user?.name?.charAt(0).toUpperCase() ?? "U"}
                         </div>
                       )}
                       <div>
-                        <p className="text-[15px] font-bold text-white/85">{user?.name}</p>
-                        <p className="text-[12px] text-white/30">{user?.email}</p>
-                        <span className="inline-flex mt-2 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 capitalize">
+                        <p className="text-[14px] font-semibold text-white/82">{user?.name}</p>
+                        <p className="text-[12px] text-white/28 mt-0.5">{user?.email}</p>
+                        <span className="inline-flex mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/[0.07] text-white/45 border border-white/[0.08] capitalize">
                           {user?.plan ?? "free"}
                         </span>
                       </div>
                     </div>
-                    <div className="border-t border-white/[0.05] px-5 pb-5 pt-4">
-                      <div className="flex items-center justify-between text-[12px] mb-2">
-                        <span className="text-white/30 font-medium">Credits used</span>
-                        <span className="text-white/55 font-bold">{creditsUsed} / {creditsTotal}</span>
+                    <div className="border-t border-white/[0.05] px-5 pb-4 pt-3.5">
+                      <div className="flex items-center justify-between text-[11.5px] mb-1.5">
+                        <span className="text-white/28 font-medium">Credits used</span>
+                        <span className="text-white/50 font-semibold">{creditsUsed} / {creditsTotal}</span>
                       </div>
-                      <div className="h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
-                        <div className={cn("h-full rounded-full transition-all duration-700", creditsPercent >= 80 ? "bg-red-500" : "")}
-                          style={{ width: `${Math.min(creditsPercent, 100)}%`, background: creditsPercent >= 80 ? undefined : "linear-gradient(90deg,#f59e0b,#f97316)" }} />
+                      <div className="h-1 rounded-full bg-white/[0.05] overflow-hidden">
+                        <div className={cn("h-full rounded-full transition-all duration-700", creditsPercent >= 80 ? "bg-red-400/70" : "bg-white/30")}
+                          style={{ width: `${Math.min(creditsPercent, 100)}%` }} />
                       </div>
                     </div>
-                  </Card>
+                  </SettingsCard>
 
-                  <Card>
+                  <SettingsCard>
                     <div className="px-5 py-5 space-y-4">
                       <Field label="Display name">
                         <TextInput value={displayName} onChange={setName} placeholder={user?.name ?? "Your name"} />
                       </Field>
                       <Field label="Language">
                         <Select value={language} onChange={setLanguage} options={langOptions}
-                          className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.07] text-[13px] text-white/80 outline-none focus:border-amber-500/40 transition-all"/>
+                          className="w-full px-3.5 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.07] text-[13px] text-white/80 outline-none focus:border-white/18 transition-all"/>
                       </Field>
                     </div>
-                    <div className="border-t border-white/[0.05] px-5 py-4 flex items-center justify-between">
+                    <div className="border-t border-white/[0.05] px-5 py-3.5 flex items-center justify-between">
                       <button onClick={handleLogout}
-                        className="text-[12.5px] text-red-400/70 hover:text-red-400 transition-colors font-semibold">
+                        className="text-[12.5px] text-red-400/60 hover:text-red-400/90 transition-colors font-medium">
                         Sign out
                       </button>
                       <button onClick={handleSave}
-                        className="flex items-center gap-2 px-5 py-2 rounded-xl text-[12.5px] font-bold text-black transition-all hover:scale-105 active:scale-95"
-                        style={{ background: "linear-gradient(135deg,#f59e0b,#f97316)" }}>
+                        className="flex items-center gap-2 px-4 py-1.5 rounded-full text-[12.5px] font-medium bg-[#E5E5E6] text-[#08090A] hover:bg-white transition-all active:scale-95">
                         {saved ? (
-                          <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>Saved</>
+                          <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>Saved</>
                         ) : "Save changes"}
                       </button>
                     </div>
-                  </Card>
+                  </SettingsCard>
                 </div>
               )}
 
               {/* Subscription */}
               {activeTab === "subscription" && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div>
-                    <h2 className="text-[20px] font-black text-white">Subscription</h2>
-                    <p className="text-[13px] text-white/28 mt-1">Choose the plan that fits your needs</p>
+                    <h2 className="text-[18px] font-semibold text-white/90">Subscription</h2>
+                    <p className="text-[12.5px] text-white/28 mt-0.5">Choose the plan that fits your needs</p>
                   </div>
-                  <div className="flex items-center gap-3 p-1 bg-white/[0.04] border border-white/[0.06] rounded-xl w-fit">
+                  <div className="flex items-center gap-2 p-1 bg-white/[0.04] border border-white/[0.06] rounded-lg w-fit">
                     {["Monthly", "Yearly"].map((p) => (
                       <button key={p} onClick={() => setBillingYearly(p === "Yearly")}
-                        className={cn("px-4 py-1.5 rounded-lg text-[12.5px] font-bold transition-all",
-                          (p === "Yearly") === billingYearly ? "bg-white text-black" : "text-white/35 hover:text-white/60")}>
-                        {p} {p === "Yearly" && <span className="text-amber-400 text-[10px] ml-1">-20%</span>}
+                        className={cn("px-3.5 py-1.5 rounded-md text-[12px] font-medium transition-all",
+                          (p === "Yearly") === billingYearly ? "bg-white/[0.1] text-white/85" : "text-white/32 hover:text-white/60")}>
+                        {p} {p === "Yearly" && <span className="text-white/40 text-[10px] ml-1">-20%</span>}
                       </button>
                     ))}
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-3">
                     {PLANS.map((plan) => {
                       const isCurrent = user?.plan === plan.id;
                       const price = billingYearly ? Math.round(plan.price * 0.8) : plan.price;
                       return (
-                        <div key={plan.id} className={cn("rounded-2xl p-5 border transition-all relative", plan.highlight
-                          ? "border-amber-500/30 bg-amber-500/5" : "border-white/[0.07] bg-white/[0.02]")}>
+                        <div key={plan.id} className={cn("rounded-xl p-5 border transition-all relative",
+                          plan.highlight ? "border-white/15 bg-white/[0.04]" : "border-white/[0.07] bg-white/[0.02]")}>
                           {plan.badge && (
-                            <span className="absolute -top-2.5 left-4 text-[10px] font-black px-2.5 py-0.5 rounded-full text-black"
-                              style={{ background: "linear-gradient(135deg,#f59e0b,#f97316)" }}>{plan.badge}</span>
+                            <span className="absolute -top-2.5 left-4 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/[0.1] text-white/60 border border-white/[0.1]">{plan.badge}</span>
                           )}
-                          <p className="text-[13px] font-black text-white mb-1">{plan.name}</p>
-                          <p className="text-[28px] font-black text-white leading-none mb-1">
-                            ${price}<span className="text-[14px] text-white/30 font-normal">/mo</span>
+                          <p className="text-[13px] font-semibold text-white/80 mb-1">{plan.name}</p>
+                          <p className="text-[26px] font-semibold text-white leading-none mb-1">
+                            ${price}<span className="text-[13px] text-white/28 font-normal">/mo</span>
                           </p>
-                          <p className="text-[11px] text-white/30 mb-4 font-medium">{plan.credits} credits/month</p>
-                          <ul className="space-y-2 mb-5">
+                          <p className="text-[11px] text-white/28 mb-4 font-medium">{plan.credits} credits/month</p>
+                          <ul className="space-y-1.5 mb-5">
                             {plan.features.map((f) => (
-                              <li key={f} className="flex items-center gap-2 text-[11.5px] text-white/50">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-amber-500 shrink-0">
-                                  <polyline points="20 6 9 17 4 12"/>
-                                </svg>
+                              <li key={f} className="flex items-center gap-2 text-[11.5px] text-white/42">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/35 shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
                                 {f}
                               </li>
                             ))}
                           </ul>
-                          <button disabled={isCurrent}
-                            className={cn("w-full py-2 rounded-xl text-[12.5px] font-bold transition-all",
-                              isCurrent ? "bg-white/[0.06] text-white/30 cursor-not-allowed" : "text-black hover:scale-105 active:scale-95")}
-                            style={!isCurrent ? { background: "linear-gradient(135deg,#f59e0b,#f97316)" } : {}}>
-                            {isCurrent ? "Current plan" : `Upgrade to ${plan.name}`}
+                          <button className={cn("w-full py-2 rounded-full text-[12.5px] font-medium transition-all",
+                            isCurrent ? "bg-white/[0.08] text-white/50 cursor-default" : plan.highlight
+                              ? "bg-[#E5E5E6] text-[#08090A] hover:bg-white" : "border border-white/12 text-white/55 hover:bg-white/[0.06]")}>
+                            {isCurrent ? "Current plan" : "Upgrade"}
                           </button>
                         </div>
                       );
@@ -420,187 +419,173 @@ export function Settings() {
 
               {/* Appearance */}
               {activeTab === "appearance" && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div>
-                    <h2 className="text-[20px] font-black text-white">Appearance</h2>
-                    <p className="text-[13px] text-white/28 mt-1">Customize how things look</p>
+                    <h2 className="text-[18px] font-semibold text-white/90">Appearance</h2>
+                    <p className="text-[12.5px] text-white/28 mt-0.5">Customize how the app looks</p>
                   </div>
-                  <Card>
+                  <SettingsCard>
                     <Row label="Theme" description="Choose your preferred color scheme"
                       right={
-                        <div className="flex gap-1.5">
+                        <div className="flex gap-1 bg-white/[0.04] border border-white/[0.06] rounded-lg p-0.5">
                           {["dark", "light", "system"].map((t) => (
                             <button key={t} onClick={() => setTheme(t)}
-                              className={cn("px-3 py-1.5 rounded-lg text-[12px] font-semibold capitalize transition-all border",
-                                theme === t ? "bg-amber-500/15 text-amber-400 border-amber-500/25" : "bg-white/[0.04] text-white/35 border-white/[0.06] hover:text-white/60")}>
+                              className={cn("px-2.5 py-1 rounded-md text-[11.5px] font-medium capitalize transition-all",
+                                theme === t ? "bg-white/[0.1] text-white/85" : "text-white/30 hover:text-white/55")}>
                               {t}
                             </button>
                           ))}
                         </div>
-                      }/>
-                    <Row label="Font size" description="Chat message text size" border={false}
+                      } />
+                    <Row label="Font size" description="Adjust chat message text size" border={false}
                       right={
-                        <div className="flex gap-1.5">
-                          {["Small", "Medium", "Large"].map((f) => (
-                            <button key={f} onClick={() => setFontSize(f)}
-                              className={cn("px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all border",
-                                fontSize === f ? "bg-amber-500/15 text-amber-400 border-amber-500/25" : "bg-white/[0.04] text-white/35 border-white/[0.06] hover:text-white/60")}>
-                              {f}
+                        <div className="flex gap-1 bg-white/[0.04] border border-white/[0.06] rounded-lg p-0.5">
+                          {["Small", "Medium", "Large"].map((s) => (
+                            <button key={s} onClick={() => setFontSize(s)}
+                              className={cn("px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all",
+                                fontSize === s ? "bg-white/[0.1] text-white/85" : "text-white/30 hover:text-white/55")}>
+                              {s}
                             </button>
                           ))}
                         </div>
-                      }/>
-                  </Card>
+                      } />
+                  </SettingsCard>
                 </div>
               )}
 
               {/* Notifications */}
               {activeTab === "notifications" && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div>
-                    <h2 className="text-[20px] font-black text-white">Notifications</h2>
-                    <p className="text-[13px] text-white/28 mt-1">Control what you receive</p>
+                    <h2 className="text-[18px] font-semibold text-white/90">Notifications</h2>
+                    <p className="text-[12.5px] text-white/28 mt-0.5">Choose what emails you receive</p>
                   </div>
-                  <Card>
+                  <SettingsCard>
                     {[
                       { key: "emailUpdates", label: "Product updates", desc: "New features and improvements" },
                       { key: "emailFeatures", label: "Feature announcements", desc: "Early access to new tools" },
-                      { key: "emailBilling", label: "Billing alerts", desc: "Invoice and usage notifications" },
-                      { key: "emailTips", label: "Tips & tutorials", desc: "Learn to use AI Builder better" },
-                      { key: "emailPromo", label: "Promotions", desc: "Special offers and discounts", last: true },
-                    ].map(({ key, label, desc, last }) => (
-                      <Row key={key} label={label} description={desc} border={!last}
-                        right={<Toggle checked={!!notifications[key]} onChange={() => toggleNotif(key)} />}/>
+                      { key: "emailBilling", label: "Billing notices", desc: "Invoices and payment alerts" },
+                      { key: "emailTips", label: "Tips & tutorials", desc: "Learn how to build faster" },
+                      { key: "emailPromo", label: "Promotions", desc: "Special offers and discounts" },
+                    ].map(({ key, label, desc }, i, arr) => (
+                      <Row key={key} label={label} description={desc} border={i < arr.length - 1}
+                        right={<Toggle checked={notifications[key]} onChange={() => toggleNotif(key)} />} />
                     ))}
-                  </Card>
+                  </SettingsCard>
                 </div>
               )}
 
               {/* Shortcuts */}
               {activeTab === "shortcuts" && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div>
-                    <h2 className="text-[20px] font-black text-white">Keyboard shortcuts</h2>
-                    <p className="text-[13px] text-white/28 mt-1">Speed up your workflow</p>
+                    <h2 className="text-[18px] font-semibold text-white/90">Keyboard shortcuts</h2>
+                    <p className="text-[12.5px] text-white/28 mt-0.5">Speed up your workflow</p>
                   </div>
-                  <Card>
-                    {SHORTCUTS.map((s, i) => (
-                      <div key={i} className={cn("flex items-center justify-between px-5 py-3.5", i < SHORTCUTS.length - 1 && "border-b border-white/[0.05]")}>
-                        <span className="text-[13px] text-white/55 font-medium">{s.desc}</span>
+                  <SettingsCard>
+                    {SHORTCUTS.map(({ keys, desc }, i) => (
+                      <div key={desc} className={cn("flex items-center justify-between px-5 py-3.5", i < SHORTCUTS.length - 1 && "border-b border-white/[0.05]")}>
+                        <span className="text-[13px] text-white/55 font-medium">{desc}</span>
                         <div className="flex items-center gap-1">
-                          {s.keys.map((k, ki) => (
-                            <span key={ki} className="px-2 py-0.5 rounded-lg bg-white/[0.06] border border-white/[0.09] text-[11px] font-bold text-white/50 font-mono">
-                              {k}
-                            </span>
+                          {keys.map((k, j) => (
+                            <span key={j} className="px-1.5 py-0.5 rounded-md border border-white/[0.1] bg-white/[0.04] text-[11px] font-mono text-white/45 min-w-[22px] text-center">{k}</span>
                           ))}
                         </div>
                       </div>
                     ))}
-                  </Card>
+                  </SettingsCard>
                 </div>
               )}
 
               {/* My AI */}
               {activeTab === "ai" && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div>
-                    <h2 className="text-[20px] font-black text-white">Custom AI</h2>
-                    <p className="text-[13px] text-white/28 mt-1">Connect your own AI API endpoint</p>
+                    <h2 className="text-[18px] font-semibold text-white/90">Custom AI</h2>
+                    <p className="text-[12.5px] text-white/28 mt-0.5">Use your own API key and model</p>
                   </div>
-                  <Card>
-                    <div className="px-5 py-5 space-y-4">
-                      <Row label="Enable custom AI" description="Use your own AI instead of the platform default" border={false}
-                        right={<Toggle checked={customAI.enabled} onChange={() => setCustomAI(prev => ({ ...prev, enabled: !prev.enabled }))} />}/>
-                    </div>
+                  <SettingsCard>
+                    <Row label="Use custom AI" description="Override platform AI with your own provider"
+                      right={<Toggle checked={customAI.enabled} onChange={() => setCustomAI(p => ({ ...p, enabled: !p.enabled }))} />} />
                     {customAI.enabled && (
-                      <div className="border-t border-white/[0.05] px-5 py-5 space-y-4">
-                        <Field label="Base URL" description="e.g. https://api.openai.com/v1 or your custom endpoint">
-                          <TextInput value={customAI.baseUrl} onChange={(v) => setCustomAI(p => ({ ...p, baseUrl: v }))} placeholder="https://api.openai.com/v1" mono />
+                      <div className="px-5 pb-5 pt-2 space-y-4 border-t border-white/[0.05]">
+                        <Field label="Base URL">
+                          <TextInput value={customAI.baseUrl} onChange={(v) => setCustomAI(p => ({ ...p, baseUrl: v }))} placeholder="https://api.openai.com/v1" />
                         </Field>
                         <Field label="API Key">
                           <TextInput value={customAI.apiKey} onChange={(v) => setCustomAI(p => ({ ...p, apiKey: v }))} placeholder="sk-..." type="password" mono />
                         </Field>
-                        <Field label="Model" description="e.g. gpt-4o, claude-3-5-sonnet, gemini-pro">
-                          <TextInput value={customAI.model} onChange={(v) => setCustomAI(p => ({ ...p, model: v }))} placeholder="gpt-4o" mono />
+                        <Field label="Model">
+                          <TextInput value={customAI.model} onChange={(v) => setCustomAI(p => ({ ...p, model: v }))} placeholder="gpt-4o-mini" mono />
                         </Field>
+                        <div className="flex items-center gap-2">
+                          <button onClick={saveCustomAI}
+                            className="px-4 py-1.5 rounded-full text-[12.5px] font-medium bg-[#E5E5E6] text-[#08090A] hover:bg-white transition-all active:scale-95">
+                            {aiSaved ? "Saved ✓" : "Save"}
+                          </button>
+                          <button onClick={testCustomAI} disabled={!customAI.apiKey || aiTesting}
+                            className="px-4 py-1.5 rounded-full text-[12.5px] font-medium border border-white/[0.1] text-white/50 hover:bg-white/[0.05] transition-all disabled:opacity-30">
+                            {aiTesting ? "Testing..." : "Test connection"}
+                          </button>
+                          {aiTestResult === "ok" && <span className="text-[12px] text-emerald-400/70 font-medium">Connected ✓</span>}
+                          {aiTestResult === "fail" && <span className="text-[12px] text-red-400/70 font-medium">Failed ✗</span>}
+                        </div>
                       </div>
                     )}
-                    <div className="border-t border-white/[0.05] px-5 py-4 flex items-center gap-3">
-                      {customAI.enabled && (
-                        <button onClick={testCustomAI} disabled={!customAI.apiKey || aiTesting}
-                          className="px-4 py-2 rounded-xl text-[12.5px] font-semibold bg-white/[0.06] border border-white/[0.08] text-white/60 hover:text-white/80 hover:bg-white/[0.09] transition-all disabled:opacity-40">
-                          {aiTesting ? "Testing..." : "Test connection"}
-                        </button>
-                      )}
-                      {aiTestResult === "ok" && <span className="text-[12px] text-emerald-400 font-semibold">✓ Connected</span>}
-                      {aiTestResult === "fail" && <span className="text-[12px] text-red-400 font-semibold">✗ Failed</span>}
-                      <button onClick={saveCustomAI}
-                        className="ml-auto px-5 py-2 rounded-xl text-[12.5px] font-bold text-black transition-all hover:scale-105 active:scale-95"
-                        style={{ background: "linear-gradient(135deg,#f59e0b,#f97316)" }}>
-                        {aiSaved ? "Saved ✓" : "Save"}
-                      </button>
-                    </div>
-                  </Card>
+                  </SettingsCard>
                 </div>
               )}
 
               {/* Connectors */}
               {activeTab === "integrations" && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div>
-                    <h2 className="text-[20px] font-black text-white">Connectors</h2>
-                    <p className="text-[13px] text-white/28 mt-1">Connect external services to your projects</p>
+                    <h2 className="text-[18px] font-semibold text-white/90">Connectors</h2>
+                    <p className="text-[12.5px] text-white/28 mt-0.5">Connect third-party services to your projects</p>
                   </div>
-                  <div className="space-y-3">
-                    {CONNECTORS.map((conn) => {
-                      const connected = isConnected(conn.id);
-                      const expanded = expandedConnector === conn.id;
+                  <div className="space-y-2">
+                    {CONNECTORS.map((connector) => {
+                      const expanded = expandedConnector === connector.id;
+                      const connected = isConnected(connector.id);
                       return (
-                        <div key={conn.id} className="bg-white/[0.025] border border-white/[0.07] rounded-2xl overflow-hidden">
-                          <button onClick={() => setExpandedConnector(expanded ? null : conn.id)}
-                            className="w-full flex items-center gap-3.5 px-5 py-4 hover:bg-white/[0.03] transition-colors text-left">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black shrink-0 text-white"
-                              style={{ background: `${conn.color}25`, border: `1px solid ${conn.color}40` }}>
-                              {conn.name.charAt(0)}
+                        <SettingsCard key={connector.id}>
+                          <button className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/[0.02] transition-colors"
+                            onClick={() => setExpandedConnector(expanded ? null : connector.id)}>
+                            <div className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center shrink-0">
+                              <span className="text-[12px] font-semibold text-white/50">{connector.name.charAt(0)}</span>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-[13px] font-bold text-white/80">{conn.name}</p>
-                              <p className="text-[11.5px] text-white/30">{conn.description}</p>
+                              <p className="text-[13px] font-medium text-white/72">{connector.name}</p>
+                              <p className="text-[11.5px] text-white/25">{connector.description}</p>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              {connected && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn("text-white/20 transition-transform", expanded && "rotate-90")}>
-                                <polyline points="9 18 15 12 9 6"/>
+                            <div className="flex items-center gap-2">
+                              {connected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/60" />}
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn("text-white/18 transition-transform duration-150", expanded ? "rotate-180" : "")} strokeLinecap="round">
+                                <polyline points="6 9 12 15 18 9"/>
                               </svg>
                             </div>
                           </button>
                           {expanded && (
-                            <div className="border-t border-white/[0.05] px-5 py-4 space-y-3">
-                              {conn.fields.map((field) => (
+                            <div className="px-5 pb-5 pt-1 space-y-3.5 border-t border-white/[0.05]">
+                              {connector.fields.map((field) => (
                                 <Field key={field.key} label={field.label}>
-                                  <TextInput
-                                    value={connectors[conn.id]?.[field.key] ?? ""}
-                                    onChange={(v) => updateConnectorField(conn.id, field.key, v)}
-                                    placeholder={field.placeholder}
-                                    type={field.secret ? "password" : "text"}
-                                    mono />
+                                  <TextInput value={connectors[connector.id]?.[field.key] ?? ""} onChange={(v) => updateConnectorField(connector.id, field.key, v)}
+                                    placeholder={field.placeholder} type={field.secret ? "password" : "text"} mono={field.secret} />
                                 </Field>
                               ))}
-                              <div className="flex items-center justify-end pt-1">
-                                <button onClick={() => saveConnector(conn.id)}
-                                  className="px-5 py-2 rounded-xl text-[12.5px] font-bold text-black transition-all hover:scale-105 active:scale-95"
-                                  style={{ background: "linear-gradient(135deg,#f59e0b,#f97316)" }}>
-                                  {connectorSaved === conn.id ? "Saved ✓" : "Save"}
-                                </button>
-                              </div>
+                              <button onClick={() => saveConnector(connector.id)}
+                                className="px-4 py-1.5 rounded-full text-[12.5px] font-medium bg-[#E5E5E6] text-[#08090A] hover:bg-white transition-all active:scale-95">
+                                {connectorSaved === connector.id ? "Saved ✓" : "Save"}
+                              </button>
                             </div>
                           )}
-                        </div>
+                        </SettingsCard>
                       );
                     })}
                   </div>
                 </div>
               )}
+
             </div>
           </div>
         </div>

@@ -59,15 +59,15 @@ interface SecretRequest {
 
 // ── Icon background colours per tool colour key ─────────────────────
 const STEP_ICON_BG: Record<string, string> = {
-  blue:    "bg-blue-100/70 dark:bg-blue-900/30",
-  slate:   "bg-slate-100/80 dark:bg-slate-800/50",
-  amber:   "bg-amber-100/70 dark:bg-amber-900/30",
-  red:     "bg-red-100/70 dark:bg-red-900/30",
-  violet:  "bg-violet-100/70 dark:bg-violet-900/30",
-  orange:  "bg-orange-100/70 dark:bg-orange-900/30",
-  cyan:    "bg-cyan-100/70 dark:bg-cyan-900/30",
-  yellow:  "bg-yellow-100/70 dark:bg-yellow-900/30",
-  emerald: "bg-emerald-100/70 dark:bg-emerald-900/30",
+  blue:    "bg-white/[0.06]",
+  slate:   "bg-white/[0.04]",
+  amber:   "bg-white/[0.06]",
+  red:     "bg-red-500/10",
+  violet:  "bg-white/[0.06]",
+  orange:  "bg-white/[0.06]",
+  cyan:    "bg-white/[0.06]",
+  yellow:  "bg-white/[0.06]",
+  emerald: "bg-emerald-500/10",
 };
 
 // ── Generate a smart human-readable label from what the agent did ────
@@ -296,13 +296,13 @@ function fileTypeIcon(name: string): React.ReactNode {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   if (["ts", "tsx"].includes(ext)) return <span className="text-[9px] font-bold text-blue-400 leading-none">TS</span>;
   if (["js", "jsx"].includes(ext)) return <span className="text-[9px] font-bold text-yellow-400 leading-none">JS</span>;
-  if (["json"].includes(ext)) return <span className="text-[9px] font-bold text-orange-400 leading-none">{"{}"}</span>;
+  if (["json"].includes(ext)) return <span className="text-[9px] font-bold text-white/45 leading-none">{"{}"}</span>;
   if (["css", "scss"].includes(ext)) return <span className="text-[9px] font-bold text-pink-400 leading-none">CSS</span>;
-  if (["html"].includes(ext)) return <span className="text-[9px] font-bold text-orange-500 leading-none">HTM</span>;
-  if (["md"].includes(ext)) return <span className="text-[9px] font-bold text-slate-400 leading-none">MD</span>;
+  if (["html"].includes(ext)) return <span className="text-[9px] font-bold text-white/45 leading-none">HTM</span>;
+  if (["md"].includes(ext)) return <span className="text-[9px] font-bold text-white/35 leading-none">MD</span>;
   if (["py"].includes(ext)) return <span className="text-[9px] font-bold text-green-400 leading-none">PY</span>;
   if (["sh", "bash"].includes(ext)) return <span className="text-[9px] font-bold text-purple-400 leading-none">SH</span>;
-  if (["env"].includes(ext)) return <span className="text-[9px] font-bold text-amber-400 leading-none">ENV</span>;
+  if (["env"].includes(ext)) return <span className="text-[9px] font-bold text-white/40 leading-none">ENV</span>;
   return <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
 }
 
@@ -1459,10 +1459,8 @@ export function AgentChat() {
               )}
 
               {isMaxBuilders && (
-                <span className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border border-amber-500/30 bg-amber-500/8"
-                  style={{ background: "linear-gradient(135deg,rgba(245,158,11,0.08),rgba(234,88,12,0.08))" }}>
-                  <span className="text-amber-500">⚡</span>
-                  <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">MAX</span>
+                <span className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-white/[0.1] bg-white/[0.05] text-white/50">
+                  ⚡ MAX
                 </span>
               )}
 
@@ -1634,9 +1632,9 @@ export function AgentChat() {
                         {isImg && a.url ? (
                           <img src={a.url} alt={a.name} className="w-9 h-9 object-cover shrink-0 rounded-l-xl" />
                         ) : (
-                          <div className={`w-9 h-9 flex items-center justify-center shrink-0 rounded-l-xl ${isZip ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"}`}>
+                          <div className={`w-9 h-9 flex items-center justify-center shrink-0 rounded-l-xl ${isZip ? "bg-white/[0.06]" : "bg-white/[0.04]"}`}>
                             {isZip ? (
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/45"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             ) : (
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                             )}
@@ -2109,7 +2107,7 @@ export function AgentChat() {
           <div className="hidden lg:flex flex-col w-52 border-l border-white/[0.06] overflow-hidden shrink-0 bg-white/[0.02]">
             <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
               <span className="text-xs font-medium text-white/40">Files</span>
-              <button onClick={() => setShowFileModal(true)} className="text-xs text-amber-500/70 hover:text-amber-400">Open</button>
+              <button onClick={() => setShowFileModal(true)} className="text-xs text-white/28 hover:text-white/60 transition-colors">Open</button>
             </div>
             <div className="flex-1 overflow-y-auto py-1">
               <FileTree files={files} onSelect={() => setShowFileModal(true)} />
@@ -2412,11 +2410,11 @@ function SecretRequestBanner({
   }
 
   return (
-    <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700 shrink-0 animate-in slide-in-from-top-2">
-      <span className="text-lg shrink-0">🔑</span>
+    <div className="flex items-start gap-3 px-4 py-3 bg-white/[0.03] border-b border-white/[0.07] shrink-0 animate-in slide-in-from-top-2">
+      <span className="text-base shrink-0">🔑</span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{request.key} required</p>
-        <p className="text-xs text-amber-700 dark:text-amber-300 mb-2">{request.description}</p>
+        <p className="text-sm font-semibold text-white/75">{request.key} required</p>
+        <p className="text-xs text-white/38 mb-2">{request.description}</p>
         {!submitted ? (
           <div className="flex gap-2">
             <input
@@ -2425,16 +2423,16 @@ function SecretRequestBanner({
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
               placeholder={`Enter ${request.key}...`}
-              className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-amber-300 bg-white dark:bg-amber-900/30 dark:border-amber-600 outline-none focus:border-amber-500"
+              className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-white/[0.1] bg-white/[0.04] outline-none focus:border-white/20 text-white/80 placeholder:text-white/18"
             />
             <button
               onClick={handleSubmit}
               disabled={!value.trim()}
-              className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors disabled:opacity-40"
+              className="text-xs px-3 py-1.5 rounded-lg bg-[#E5E5E6] text-[#08090A] hover:bg-white transition-colors disabled:opacity-40"
             >
               Save
             </button>
-            <button onClick={onDismiss} className="text-xs px-3 py-1.5 rounded-lg bg-transparent border border-amber-300 hover:bg-amber-100 transition-colors text-amber-700">
+            <button onClick={onDismiss} className="text-xs px-3 py-1.5 rounded-lg border border-white/[0.1] text-white/40 hover:bg-white/[0.05] transition-colors">
               Skip
             </button>
           </div>
@@ -2519,8 +2517,7 @@ function EmptyState({ projectName, userName, onExample }: { projectName?: string
         <h2 className="text-[clamp(1.8rem,5vw,3rem)] font-black text-white tracking-tight leading-tight mb-2">
           {greeting}
         </h2>
-        <p className="text-[clamp(1.1rem,3vw,1.7rem)] font-bold tracking-tight"
-          style={{ background: "linear-gradient(90deg,#f59e0b,#f97316)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+        <p className="text-[clamp(1.1rem,3vw,1.7rem)] font-semibold tracking-tight text-white/40">
           {projectName ? `Let's build "${projectName}"` : "What are we building today?"}
         </p>
       </div>
@@ -2773,7 +2770,7 @@ function getDomain(url: string): string {
 }
 
 function faviconBg(url: string): string {
-  const palette = ["bg-blue-500","bg-rose-500","bg-emerald-500","bg-violet-500","bg-amber-500","bg-cyan-500","bg-pink-500","bg-orange-500"];
+  const palette = ["bg-blue-500","bg-rose-500","bg-emerald-500","bg-violet-500","bg-white/40","bg-cyan-500","bg-pink-500","bg-white/30"];
   let h = 0; for (let i = 0; i < url.length; i++) h = url.charCodeAt(i) + ((h << 5) - h);
   return palette[Math.abs(h) % palette.length];
 }
@@ -3026,10 +3023,10 @@ function MessageBubble({
                   );
                 }
                 return (
-                  <div key={i} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl border text-xs ${isZip ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50" : "bg-muted border-border"}`}>
-                    <span className="shrink-0 text-muted-foreground">
+                  <div key={i} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl border text-xs ${isZip ? "bg-white/[0.04] border-white/[0.08]" : "bg-white/[0.03] border-white/[0.07]"}`}>
+                    <span className="shrink-0 text-white/35">
                       {isZip ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/45"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                       ) : (
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                       )}
@@ -3409,7 +3406,7 @@ function BoboDatabaseModal({
     if (type === "object") return "text-blue-400 bg-blue-500/10 border-blue-500/20";
     if (type === "array") return "text-violet-400 bg-violet-500/10 border-violet-500/20";
     if (type === "string") return "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
-    if (type === "number") return "text-amber-400 bg-amber-500/10 border-amber-500/20";
+    if (type === "number") return "text-white/55 bg-white/[0.06] border-white/[0.1]";
     return "text-white/30 bg-white/5 border-white/10";
   }
 
@@ -3417,7 +3414,7 @@ function BoboDatabaseModal({
     if (type === "object") return "bg-blue-400";
     if (type === "array") return "bg-violet-400";
     if (type === "string") return "bg-emerald-400";
-    if (type === "number") return "bg-amber-400";
+    if (type === "number") return "bg-white/40";
     return "bg-white/30";
   }
 
@@ -3496,7 +3493,7 @@ function BoboDatabaseModal({
                 <span className="text-white/55 font-semibold">{stats.usedKB} KB <span className="text-white/25 font-normal">/ {stats.maxMB} MB</span></span>
               </div>
               <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
-                <div className={cn("h-full rounded-full transition-all", usedPct >= 80 ? "bg-red-500" : usedPct >= 50 ? "bg-amber-500" : "bg-blue-500")}
+                <div className={cn("h-full rounded-full transition-all", usedPct >= 80 ? "bg-red-400/70" : "bg-white/30")}
                   style={{ width: `${usedPct}%` }} />
               </div>
               <p className="text-[10.5px] text-white/20">{usedPct}% used · {stats.maxMB * 1024 - stats.usedKB} KB free</p>
@@ -3807,8 +3804,7 @@ function SkillsManagerModal({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06] shrink-0">
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="url(#skillsGrad)" strokeWidth="2">
-              <defs><linearGradient id="skillsGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f59e0b"/><stop offset="100%" stopColor="#f97316"/></linearGradient></defs>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/45">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
             </svg>
             <h2 className="font-semibold text-[15px] text-white">Skills</h2>
