@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRegister, useLogin, getGetMeQueryKey, setAuthTokenGetter } from "@workspace/api-client-react";
 import { Logo } from "@/components/Logo";
+import { OtpInput } from "@/components/OtpInput";
 import { detectLanguage, detectCountry } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -50,77 +51,6 @@ function FloatingCard({ className, children }: { className?: string; children: R
   );
 }
 
-/* ── OTP Input: 8 individual boxes ────────────────────────────── */
-function OtpInput({ value, onChange, disabled }: {
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
-  const refs = useRef<(HTMLInputElement | null)[]>([]);
-  const digits = value.padEnd(8, "").slice(0, 8).split("");
-
-  function handleChange(i: number, ch: string) {
-    const d = ch.replace(/\D/g, "").slice(-1);
-    const next = digits.map((v, idx) => (idx === i ? d : v)).join("").slice(0, 8);
-    onChange(next);
-    if (d && i < 7) refs.current[i + 1]?.focus();
-  }
-
-  function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace") {
-      if (!digits[i] && i > 0) {
-        const next = digits.map((v, idx) => (idx === i - 1 ? "" : v)).join("");
-        onChange(next);
-        refs.current[i - 1]?.focus();
-      } else {
-        const next = digits.map((v, idx) => (idx === i ? "" : v)).join("");
-        onChange(next);
-      }
-    } else if (e.key === "ArrowLeft" && i > 0) {
-      refs.current[i - 1]?.focus();
-    } else if (e.key === "ArrowRight" && i < 7) {
-      refs.current[i + 1]?.focus();
-    }
-  }
-
-  function handlePaste(e: React.ClipboardEvent) {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
-    onChange(pasted.padEnd(Math.max(value.length, pasted.length), "").slice(0, 8));
-    const nextIdx = Math.min(pasted.length, 7);
-    refs.current[nextIdx]?.focus();
-  }
-
-  return (
-    <div className="flex gap-2 justify-center">
-      {[0,1,2,3,4,5,6,7].map((i) => (
-        <input
-          key={i}
-          ref={(el) => { refs.current[i] = el; }}
-          type="text"
-          inputMode="numeric"
-          maxLength={1}
-          value={digits[i] ?? ""}
-          onChange={(e) => handleChange(i, e.target.value)}
-          onKeyDown={(e) => handleKeyDown(i, e)}
-          onFocus={(e) => e.target.select()}
-          onPaste={handlePaste}
-          disabled={disabled}
-          className={cn(
-            "w-9 h-11 text-center text-[18px] font-bold rounded-lg border transition-all outline-none",
-            "bg-white/[0.04] text-white/90",
-            digits[i]
-              ? "border-white/25 bg-white/[0.07]"
-              : "border-white/[0.08]",
-            "focus:border-white/35 focus:bg-white/[0.09]",
-            "disabled:opacity-40 disabled:cursor-not-allowed",
-            "font-mono"
-          )}
-        />
-      ))}
-    </div>
-  );
-}
 
 export function Auth() {
   const [showModal, setShowModal] = useState(false);
@@ -498,9 +428,21 @@ export function Auth() {
                     <span className="text-white/55 font-medium">{pendingEmail}</span>
                   </p>
 
-                  <form onSubmit={handleVerifyOtp}>
-                    <div className="mb-5">
-                      <OtpInput value={otpCode} onChange={setOtpCode} disabled={otpLoading} />
+                  <form onSubmit={handleVerifyOtp} id="otp-form-auth">
+                    <div className="mb-5 flex justify-center">
+                      <OtpInput
+                        value={otpCode}
+                        onChange={setOtpCode}
+                        disabled={otpLoading}
+                        autoFocus
+                        onComplete={(v) => {
+                          setOtpCode(v);
+                          setTimeout(() => {
+                            const form = document.getElementById("otp-form-auth") as HTMLFormElement | null;
+                            form?.requestSubmit();
+                          }, 80);
+                        }}
+                      />
                     </div>
 
                     {otpError && (

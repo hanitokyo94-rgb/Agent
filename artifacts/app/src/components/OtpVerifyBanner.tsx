@@ -1,77 +1,9 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
+import { OtpInput } from "@/components/OtpInput";
 import { cn } from "@/lib/utils";
 
-interface OtpInputProps {
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}
-
-function OtpInput({ value, onChange, disabled }: OtpInputProps) {
-  const digits = value.padEnd(8, "").slice(0, 8).split("");
-  const refs: (HTMLInputElement | null)[] = [];
-
-  function handleChange(i: number, ch: string) {
-    const d = ch.replace(/\D/g, "").slice(-1);
-    const next = digits.map((v, idx) => (idx === i ? d : v)).join("").slice(0, 8);
-    onChange(next);
-    if (d && i < 7) refs[i + 1]?.focus();
-  }
-
-  function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace") {
-      if (!digits[i] && i > 0) {
-        const next = digits.map((v, idx) => (idx === i - 1 ? "" : v)).join("");
-        onChange(next);
-        refs[i - 1]?.focus();
-      } else {
-        const next = digits.map((v, idx) => (idx === i ? "" : v)).join("");
-        onChange(next);
-      }
-    } else if (e.key === "ArrowLeft" && i > 0) {
-      refs[i - 1]?.focus();
-    } else if (e.key === "ArrowRight" && i < 7) {
-      refs[i + 1]?.focus();
-    }
-  }
-
-  function handlePaste(e: React.ClipboardEvent) {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
-    onChange(pasted.padEnd(Math.max(value.length, pasted.length), "").slice(0, 8));
-    const nextIdx = Math.min(pasted.length, 7);
-    refs[nextIdx]?.focus();
-  }
-
-  return (
-    <div className="flex gap-1.5 justify-center">
-      {[0,1,2,3,4,5,6,7].map((i) => (
-        <input
-          key={i}
-          ref={(el) => { refs[i] = el; }}
-          type="text"
-          inputMode="numeric"
-          maxLength={1}
-          value={digits[i] ?? ""}
-          onChange={(e) => handleChange(i, e.target.value)}
-          onKeyDown={(e) => handleKeyDown(i, e)}
-          onFocus={(e) => e.target.select()}
-          onPaste={handlePaste}
-          disabled={disabled}
-          className={cn(
-            "w-8 h-10 text-center text-[16px] font-bold rounded-lg border transition-all outline-none font-mono",
-            "bg-white/[0.04] text-white/90",
-            digits[i] ? "border-white/25 bg-white/[0.07]" : "border-white/[0.08]",
-            "focus:border-white/35 focus:bg-white/[0.09]",
-            "disabled:opacity-40 disabled:cursor-not-allowed"
-          )}
-        />
-      ))}
-    </div>
-  );
-}
 
 interface OtpVerifyBannerProps {
   email: string;
@@ -170,9 +102,21 @@ export function OtpVerifyBanner({ email }: OtpVerifyBannerProps) {
       {/* Expanded OTP input */}
       {expanded && (
         <div className="border-t border-white/[0.06] px-4 py-4">
-          <form onSubmit={handleVerify}>
-            <div className="mb-4">
-              <OtpInput value={code} onChange={setCode} disabled={loading} />
+          <form onSubmit={handleVerify} id="otp-banner-form">
+            <div className="mb-4 flex justify-center">
+              <OtpInput
+                value={code}
+                onChange={setCode}
+                disabled={loading}
+                autoFocus
+                onComplete={(v) => {
+                  setCode(v);
+                  setTimeout(() => {
+                    const form = document.getElementById("otp-banner-form") as HTMLFormElement | null;
+                    form?.requestSubmit();
+                  }, 80);
+                }}
+              />
             </div>
 
             {error && (
