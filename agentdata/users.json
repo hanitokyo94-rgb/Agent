@@ -66,5 +66,22 @@
     "creditsUsed": 14,
     "plan": "admin",
     "createdAt": "2026-05-07T14:58:28.232Z"
+  },
+  {
+    "id": "1f95a362-9ce7-4e59-81d7-359e3c9f4253",
+    "name": "Test",
+    "email": "test@test.com",
+    "passwordHash": "$2b$10$Rhb9hyc36AW3l46QZjDJSODrmikqVtOXD0LZqW6APSPg2DkqmswXC",
+    "avatar": null,
+    "onboardingCompleted": false,
+    "skillLevel": null,
+    "category": null,
+    "adSource": null,
+    "country": null,
+    "language": null,
+    "credits": 20,
+    "creditsUsed": 0,
+    "plan": "free",
+    "createdAt": "2026-05-09T06:06:26.004Z"
   }
 ]
