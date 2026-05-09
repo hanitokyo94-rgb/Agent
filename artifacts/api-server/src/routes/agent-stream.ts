@@ -765,6 +765,21 @@ const AGENT_TOOLS = [
       parameters: { type: "object", properties: {} },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "take_screenshot",
+      description: "Take a visual screenshot of any public URL and show it inline in the chat. Use after fetch_url to visually inspect a webpage, or to verify a deployed site looks correct visually. Great for checking homepages, search results, competitor sites, and live deployments.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Full public URL to screenshot (must be publicly accessible, not localhost)" },
+          label: { type: "string", description: "Short label for the screenshot e.g. 'Homepage', 'Search results', 'Competitor site'" },
+        },
+        required: ["url"],
+      },
+    },
+  },
 ];
 
 function getSystemPrompt(lang: string | null | undefined, workspaceFileCount: number, platformUrl?: string): string {
@@ -813,6 +828,7 @@ Files Modified: [list]
 - Deploy projects to Vercel for live public URLs
 - Build Expo/React Native mobile apps and upload to Expo Snack for instant QR code preview on phone
 - Call build_preview to build a web app and open a live browser preview panel inside the platform
+- Take visual screenshots of any public URL with take_screenshot — shows an inline screenshot card in chat
 </capabilities>
 
 <agent_loop>
@@ -825,6 +841,7 @@ You operate iteratively:
    file_write (package.json first) → file_write (source) → install_packages → build_preview (for live preview) → deploy_to_vercel (for public URL)
 4. Notify progress with message_notify at each meaningful step
 5. ALWAYS end with task_done — NEVER finish without calling it
+6. When user asks to "check", "look at", "inspect", "review", or "see" a website: use fetch_url THEN take_screenshot to show the visual result inline.
 </agent_loop>
 
 <preview_rules>
@@ -1859,6 +1876,34 @@ async function executeTool(
       } catch (err: any) {
         const out = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
         return `❌ Build failed:\n${(out || err.message).slice(0, 4000)}`;
+      }
+    }
+
+    case "take_screenshot": {
+      try {
+        const url: string = args.url;
+        const label: string = args.label ?? url;
+        sendEvent("notify", { text: `📸 Taking screenshot of ${url}...` });
+        const screenshotServiceUrl = `https://image.thum.io/get/width/1280/png/${encodeURIComponent(url)}`;
+        const imgRes = await fetch(screenshotServiceUrl, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; AI-Agent/2.0)" },
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!imgRes.ok) {
+          return `❌ Screenshot service returned ${imgRes.status} for ${url}. The URL may not be publicly accessible.`;
+        }
+        const imgBuffer = await imgRes.arrayBuffer();
+        const screenshotsDir = path.join(wsDir, "screenshots");
+        fs.mkdirSync(screenshotsDir, { recursive: true });
+        const filename = `screenshot_${Date.now()}.png`;
+        const filePath = path.join(screenshotsDir, filename);
+        fs.writeFileSync(filePath, Buffer.from(imgBuffer));
+        const relPath = `screenshots/${filename}`;
+        const previewUrl = `/api/projects/${projectId}/raw/${encodeURIComponent(relPath)}`;
+        sendEvent("screenshot_taken", { url: previewUrl, sourceUrl: url, label, filename: relPath });
+        return `✅ Screenshot captured and shown inline.\nFile: ${relPath}\nSource: ${url}`;
+      } catch (err: any) {
+        return `❌ take_screenshot failed: ${err.message}`;
       }
     }
 

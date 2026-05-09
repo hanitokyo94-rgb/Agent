@@ -120,6 +120,7 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   generate_image:       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
   git_push:             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>,
   build_preview:        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  take_screenshot:      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>,
 };
 
 const _TI_DEFAULT = <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
@@ -147,6 +148,7 @@ const TOOL_CONFIG: Record<string, { label: string; icon: React.ReactNode; color:
   generate_image:       { label: "Generating image",  icon: TOOL_ICONS.generate_image,   color: "purple" },
   git_push:             { label: "Pushing to Git",    icon: TOOL_ICONS.git_push,         color: "slate" },
   build_preview:        { label: "Building preview",  icon: TOOL_ICONS.build_preview,    color: "teal" },
+  take_screenshot:      { label: "Screenshotting",    icon: TOOL_ICONS.take_screenshot,  color: "cyan" },
 };
 
 const EXAMPLES = [
@@ -375,6 +377,7 @@ export function AgentChat() {
   const [mentionCursorInfo, setMentionCursorInfo] = useState<{ start: number; end: number } | null>(null);
   const [expoSnacks, setExpoSnacks] = useState<Record<string, { url: string; qrUrl: string; snackId: string }>>({});
   const [generatedImages, setGeneratedImages] = useState<Record<string, Array<{ url: string; prompt: string; filename: string }>>>({});
+  const [takenScreenshots, setTakenScreenshots] = useState<Record<string, Array<{ url: string; sourceUrl: string; label: string }>>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
     try { return localStorage.getItem(`preview-url-${projectId}`) ?? null; } catch { return null; }
   });
@@ -1058,6 +1061,12 @@ export function AgentChat() {
                     [aiMsgId]: [...(prev[aiMsgId] ?? []), { url: data.url, prompt: data.prompt, filename: data.filename }],
                   }));
                   break;
+                case "screenshot_taken":
+                  setTakenScreenshots((prev) => ({
+                    ...prev,
+                    [aiMsgId]: [...(prev[aiMsgId] ?? []), { url: data.url, sourceUrl: data.sourceUrl, label: data.label ?? data.sourceUrl }],
+                  }));
+                  break;
                 case "git_pushed":
                   setGithubPushResult({ url: data.url });
                   setGithubPushStatus("done");
@@ -1112,6 +1121,14 @@ export function AgentChat() {
                       const snack = prev[aiMsgId];
                       if (snack) {
                         try { localStorage.setItem(`es-${projectId}-${finalMsgId}`, JSON.stringify(snack)); } catch {}
+                      }
+                      return next;
+                    });
+                    // Re-key taken screenshots
+                    setTakenScreenshots((prev) => {
+                      const next: typeof prev = {};
+                      for (const [k, v] of Object.entries(prev)) {
+                        next[k === aiMsgId ? finalMsgId : k] = v;
                       }
                       return next;
                     });
@@ -1612,6 +1629,7 @@ export function AgentChat() {
                   copiedId={copiedMsgId}
                   expoSnack={expoSnacks[msg.id]}
                   images={generatedImages[msg.id]}
+                  screenshots={takenScreenshots[msg.id]}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -2801,12 +2819,24 @@ function SearchResultsModal({ tool, onClose }: { tool: ToolEvent; onClose: () =>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">
           {results.length > 0 ? results.map((r, i) => (
             <a key={i} href={r.url} target="_blank" rel="noopener noreferrer"
               className="flex gap-3 p-3 rounded-xl hover:bg-muted/50 transition-colors group border border-transparent hover:border-border/40">
-              <div className={`w-9 h-9 rounded-xl ${faviconBg(r.url)} shrink-0 flex items-center justify-center text-white text-sm font-bold mt-0.5 uppercase`}>
-                {getDomain(r.url)[0]}
+              {/* Site thumbnail via thum.io */}
+              <div className="w-14 h-10 rounded-lg overflow-hidden shrink-0 border border-border/40 bg-muted/30 relative">
+                <img
+                  src={`https://image.thum.io/get/width/200/crop/150/png/${encodeURIComponent(r.url)}`}
+                  alt={r.title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    const el = e.currentTarget;
+                    el.style.display = "none";
+                    const parent = el.parentElement!;
+                    parent.innerHTML = `<div class="w-full h-full flex items-center justify-center text-base font-bold text-white uppercase ${faviconBg(r.url)}">${getDomain(r.url)[0]}</div>`;
+                  }}
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground leading-snug group-hover:text-primary transition-colors line-clamp-2">{r.title}</p>
@@ -2941,6 +2971,64 @@ function ExpoSnackCard({ snack }: { snack: { url: string; qrUrl: string; snackId
   );
 }
 
+// ── Screenshot Card ───────────────────────────────────────────────────
+function ScreenshotCard({ screenshot }: { screenshot: { url: string; sourceUrl: string; label: string } }) {
+  const [expanded, setExpanded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const domain = (() => {
+    try { return new URL(screenshot.sourceUrl.startsWith("http") ? screenshot.sourceUrl : "https://" + screenshot.sourceUrl).hostname.replace("www.", ""); }
+    catch { return screenshot.sourceUrl.slice(0, 30); }
+  })();
+  return (
+    <div className="mt-2 border border-border/60 rounded-2xl overflow-hidden bg-background/60">
+      <div className="flex items-center gap-2 px-3.5 py-2 bg-muted/30 border-b border-border/40">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground shrink-0">
+          <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
+        </svg>
+        <span className="text-[11.5px] font-medium text-foreground/75 truncate flex-1">{screenshot.label !== screenshot.sourceUrl ? screenshot.label : domain}</span>
+        <span className="text-[10px] text-muted-foreground/45 font-mono shrink-0 hidden sm:block">{domain}</span>
+        <a
+          href={screenshot.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 p-1 rounded-md hover:bg-muted text-muted-foreground/50 hover:text-primary transition-colors"
+          title="Open URL"
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+        </a>
+      </div>
+      <div className="p-2 relative">
+        {!loaded && (
+          <div className="w-full h-36 rounded-xl bg-muted/40 animate-pulse flex items-center justify-center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-muted-foreground/30">
+              <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
+            </svg>
+          </div>
+        )}
+        <img
+          src={screenshot.url}
+          alt={screenshot.label}
+          className={`w-full rounded-xl border border-border/30 object-cover cursor-zoom-in transition-all duration-200 ${expanded ? "max-h-none" : "max-h-52"} ${loaded ? "block" : "hidden"}`}
+          onClick={() => setExpanded((e) => !e)}
+          onLoad={() => setLoaded(true)}
+          onError={(e) => { (e.target as HTMLImageElement).closest(".p-2")!.innerHTML = `<p class="text-xs text-muted-foreground/50 py-3 text-center">Screenshot unavailable</p>`; }}
+        />
+        {loaded && (
+          <button
+            onClick={() => setExpanded((e) => !e)}
+            className="absolute bottom-4 right-4 flex items-center gap-1 px-2 py-1 rounded-lg bg-background/80 border border-border/50 text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors backdrop-blur-sm"
+          >
+            {expanded
+              ? <><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="21" y2="3"/><line x1="3" y1="21" x2="14" y2="10"/></svg> Collapse</>
+              : <><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg> Expand</>
+            }
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Message bubble ───────────────────────────────────────────────────
 function GeneratedImageCard({ image }: { image: { url: string; prompt: string; filename: string } }) {
   const [expanded, setExpanded] = useState(false);
@@ -2984,7 +3072,7 @@ function GeneratedImageCard({ image }: { image: { url: string; prompt: string; f
 }
 
 function MessageBubble({
-  msg, tools, notifies, onOpenCode, onCopy, copiedId, expoSnack, images,
+  msg, tools, notifies, onOpenCode, onCopy, copiedId, expoSnack, images, screenshots,
 }: {
   msg: StreamMessage;
   tools: ToolEvent[];
@@ -2994,6 +3082,7 @@ function MessageBubble({
   copiedId?: string | null;
   expoSnack?: { url: string; qrUrl: string; snackId: string };
   images?: Array<{ url: string; prompt: string; filename: string }>;
+  screenshots?: Array<{ url: string; sourceUrl: string; label: string }>;
 }) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
@@ -3256,6 +3345,13 @@ function MessageBubble({
       {images && images.length > 0 && (
         <div className="space-y-2">
           {images.map((img, i) => <GeneratedImageCard key={i} image={img} />)}
+        </div>
+      )}
+
+      {/* ── Screenshots ── */}
+      {screenshots && screenshots.length > 0 && (
+        <div className="space-y-2">
+          {screenshots.map((ss, i) => <ScreenshotCard key={i} screenshot={ss} />)}
         </div>
       )}
 
