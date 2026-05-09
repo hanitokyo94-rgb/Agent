@@ -1890,6 +1890,12 @@ router.post("/projects/:projectId/agent/stream", async (req, res) => {
   const users = findWhere<User>("users", (u) => u.id === userId);
   const user = users[0];
 
+  // Block unverified users from using the AI agent
+  if (user && (user as any).emailVerified === false) {
+    res.status(403).json({ error: "Email verification required", emailVerificationRequired: true });
+    return;
+  }
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");

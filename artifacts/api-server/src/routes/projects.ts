@@ -95,6 +95,15 @@ router.post("/projects/generate-name", async (req, res) => {
 router.post("/projects", (req, res) => {
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
+
+  // Block unverified users from creating projects
+  const users = findWhere<{ id: string; emailVerified?: boolean }>("users", (u) => u.id === userId);
+  const user = users[0];
+  if (user && user.emailVerified === false) {
+    res.status(403).json({ error: "Email verification required", emailVerificationRequired: true });
+    return;
+  }
+
   const { description, url, category } = req.body as {
     description?: string;
     url?: string | null;

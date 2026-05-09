@@ -83,5 +83,41 @@
     "creditsUsed": 0,
     "plan": "free",
     "createdAt": "2026-05-09T06:06:26.004Z"
+  },
+  {
+    "id": "e7465579-e18d-4804-b162-da7093ae2832",
+    "name": "Test User",
+    "email": "test_otp_1778308289@example.com",
+    "passwordHash": "$2b$10$B1aZny8psOo0l3RA/1KuAu.iWLMpu3aaV/7u57geEe5/KxFG/sppq",
+    "avatar": null,
+    "onboardingCompleted": false,
+    "emailVerified": false,
+    "skillLevel": null,
+    "category": null,
+    "adSource": null,
+    "country": null,
+    "language": null,
+    "credits": 20,
+    "creditsUsed": 0,
+    "plan": "free",
+    "createdAt": "2026-05-09T06:31:29.270Z"
+  },
+  {
+    "id": "fabbd5d8-5443-42fd-9f20-214b521327f3",
+    "name": "Test User",
+    "email": "test1778308295@example.com",
+    "passwordHash": "$2b$10$DGff/lNKZ7csZBJLlUU8E.1uDljurHNil6RWFnPDYUtsxnsALKnIi",
+    "avatar": null,
+    "onboardingCompleted": false,
+    "emailVerified": false,
+    "skillLevel": null,
+    "category": null,
+    "adSource": null,
+    "country": null,
+    "language": null,
+    "credits": 20,
+    "creditsUsed": 0,
+    "plan": "free",
+    "createdAt": "2026-05-09T06:31:35.934Z"
   }
 ]

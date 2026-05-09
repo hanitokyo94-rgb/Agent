@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRegister, useLogin, getGetMeQueryKey, setAuthTokenGetter } from "@workspace/api-client-react";
@@ -50,6 +50,78 @@ function FloatingCard({ className, children }: { className?: string; children: R
   );
 }
 
+/* ── OTP Input: 8 individual boxes ────────────────────────────── */
+function OtpInput({ value, onChange, disabled }: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const digits = value.padEnd(8, "").slice(0, 8).split("");
+
+  function handleChange(i: number, ch: string) {
+    const d = ch.replace(/\D/g, "").slice(-1);
+    const next = digits.map((v, idx) => (idx === i ? d : v)).join("").slice(0, 8);
+    onChange(next);
+    if (d && i < 7) refs.current[i + 1]?.focus();
+  }
+
+  function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace") {
+      if (!digits[i] && i > 0) {
+        const next = digits.map((v, idx) => (idx === i - 1 ? "" : v)).join("");
+        onChange(next);
+        refs.current[i - 1]?.focus();
+      } else {
+        const next = digits.map((v, idx) => (idx === i ? "" : v)).join("");
+        onChange(next);
+      }
+    } else if (e.key === "ArrowLeft" && i > 0) {
+      refs.current[i - 1]?.focus();
+    } else if (e.key === "ArrowRight" && i < 7) {
+      refs.current[i + 1]?.focus();
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
+    onChange(pasted.padEnd(Math.max(value.length, pasted.length), "").slice(0, 8));
+    const nextIdx = Math.min(pasted.length, 7);
+    refs.current[nextIdx]?.focus();
+  }
+
+  return (
+    <div className="flex gap-2 justify-center">
+      {[0,1,2,3,4,5,6,7].map((i) => (
+        <input
+          key={i}
+          ref={(el) => { refs.current[i] = el; }}
+          type="text"
+          inputMode="numeric"
+          maxLength={1}
+          value={digits[i] ?? ""}
+          onChange={(e) => handleChange(i, e.target.value)}
+          onKeyDown={(e) => handleKeyDown(i, e)}
+          onFocus={(e) => e.target.select()}
+          onPaste={handlePaste}
+          disabled={disabled}
+          className={cn(
+            "w-9 h-11 text-center text-[18px] font-bold rounded-lg border transition-all outline-none",
+            "bg-white/[0.04] text-white/90",
+            digits[i]
+              ? "border-white/25 bg-white/[0.07]"
+              : "border-white/[0.08]",
+            "focus:border-white/35 focus:bg-white/[0.09]",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+            "font-mono"
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function Auth() {
   const [showModal, setShowModal] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -63,21 +135,39 @@ export function Auth() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
+  // OTP state
+  const [otpStep, setOtpStep] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpError, setOtpError] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [pendingToken, setPendingToken] = useState("");
+  const [pendingOnboarding, setPendingOnboarding] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState("");
+
   const register = useRegister();
   const login = useLogin();
   const isPending = register.isPending || login.isPending;
 
   useEffect(() => { requestAnimationFrame(() => setPageVisible(true)); }, []);
 
+  // Resend cooldown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown((v) => v - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
+
   function openModal(m: "login" | "register") {
     setMode(m); setError("");
     setName(""); setEmail(""); setPassword(""); setShowPass(false);
+    setOtpStep(false); setOtpCode(""); setOtpError("");
     setShowModal(true);
     requestAnimationFrame(() => requestAnimationFrame(() => setModalVisible(true)));
   }
   function closeModal() {
     setModalVisible(false);
-    setTimeout(() => setShowModal(false), 280);
+    setTimeout(() => { setShowModal(false); setOtpStep(false); setOtpCode(""); setOtpError(""); }, 280);
   }
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") closeModal(); }
@@ -85,12 +175,20 @@ export function Auth() {
     return () => document.removeEventListener("keydown", onKey);
   }, [showModal]);
 
-  function handleSuccess(token: string, onboardingCompleted: boolean) {
+  function handleSuccess(token: string, onboardingCompleted: boolean, requiresOtp: boolean, userEmail: string) {
     localStorage.setItem("token", token);
     setAuthTokenGetter(() => localStorage.getItem("token"));
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-    closeModal();
-    setTimeout(() => setLocation(!onboardingCompleted ? "/onboarding" : "/dashboard"), 100);
+    if (requiresOtp) {
+      setPendingToken(token);
+      setPendingOnboarding(onboardingCompleted);
+      setPendingEmail(userEmail);
+      setOtpStep(true);
+      setResendCooldown(60);
+    } else {
+      closeModal();
+      setTimeout(() => setLocation(!onboardingCompleted ? "/onboarding" : "/dashboard"), 100);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -98,15 +196,60 @@ export function Auth() {
     const country = detectCountry(); const language = detectLanguage();
     if (mode === "register") {
       register.mutate({ data: { name, email, password, country: country ?? undefined, language } }, {
-        onSuccess: (res) => handleSuccess(res.token, res.user.onboardingCompleted),
+        onSuccess: (res) => handleSuccess(
+          res.token,
+          res.user.onboardingCompleted,
+          (res as any).emailVerificationRequired ?? false,
+          res.user.email
+        ),
         onError: (err: any) => setError(err?.data?.error ?? "Registration failed"),
       });
     } else {
       login.mutate({ data: { email, password } }, {
-        onSuccess: (res) => handleSuccess(res.token, res.user.onboardingCompleted),
+        onSuccess: (res) => handleSuccess(
+          res.token,
+          res.user.onboardingCompleted,
+          (res as any).emailVerificationRequired ?? false,
+          res.user.email
+        ),
         onError: (err: any) => setError(err?.data?.error ?? "Login failed"),
       });
     }
+  }
+
+  async function handleVerifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+    if (otpCode.length !== 8) { setOtpError("Enter all 8 digits"); return; }
+    setOtpLoading(true); setOtpError("");
+    try {
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${pendingToken}`,
+        },
+        body: JSON.stringify({ code: otpCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setOtpError(data.error ?? "Invalid code"); setOtpLoading(false); return; }
+      queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      closeModal();
+      setTimeout(() => setLocation(!pendingOnboarding ? "/onboarding" : "/dashboard"), 100);
+    } catch {
+      setOtpError("Something went wrong. Try again.");
+      setOtpLoading(false);
+    }
+  }
+
+  async function handleResendOtp() {
+    if (resendCooldown > 0) return;
+    setResendCooldown(60); setOtpError("");
+    try {
+      await fetch("/api/auth/send-otp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${pendingToken}` },
+      });
+    } catch {}
   }
 
   return (
@@ -192,13 +335,11 @@ export function Auth() {
 
         {/* Center content */}
         <div className="relative z-10 text-center max-w-2xl mx-auto">
-          {/* Status badge */}
           <div className="inline-flex items-center gap-2 bg-white/[0.04] border border-white/[0.08] rounded-full px-4 py-1.5 mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/60 animate-pulse" />
             <span className="text-[12px] text-white/45 font-medium">Thousands of builders · Free to start</span>
           </div>
 
-          {/* Headline */}
           <h1 className={cn(
             "text-[clamp(2.4rem,6.5vw,5rem)] font-semibold text-white tracking-[-0.03em] leading-[1.05] mb-5 transition-all duration-600",
             pageVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
@@ -214,7 +355,6 @@ export function Auth() {
             Describe your idea in plain language. Bobo plans, writes, runs, and deploys your project — fully autonomous.
           </p>
 
-          {/* CTA */}
           <div className={cn(
             "flex items-center justify-center gap-3 flex-wrap transition-all duration-600 delay-150",
             pageVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
@@ -332,90 +472,157 @@ export function Auth() {
                 </svg>
               </button>
 
-              <div className="flex items-center gap-2 mb-5">
-                <Logo className="w-6 h-6" />
-                <span className="font-semibold text-[13px] text-white/75">Bobo</span>
-              </div>
-
-              <h2 className="text-[22px] font-semibold text-white mb-1 tracking-tight">
-                {mode === "login" ? "Welcome back" : "Create account"}
-              </h2>
-              <p className="text-[13px] text-white/30 mb-5">
-                {mode === "login" ? "Sign in to continue building" : "Start building with AI for free"}
-              </p>
-
-              {/* Mode toggle */}
-              <div className="flex bg-white/[0.04] border border-white/[0.06] rounded-lg p-0.5 mb-5">
-                {(["login", "register"] as const).map((m) => (
-                  <button key={m} onClick={() => { setMode(m); setError(""); }}
-                    className={cn("flex-1 py-1.5 text-[12.5px] font-medium rounded-md transition-all",
-                      mode === m ? "bg-white/[0.1] text-white/90" : "text-white/35 hover:text-white/60")}>
-                    {m === "login" ? "Sign in" : "Sign up"}
-                  </button>
-                ))}
-              </div>
-
-              <form onSubmit={handleSubmit} className="space-y-3.5">
-                {mode === "register" && (
-                  <div>
-                    <label className="text-[11px] font-medium text-white/28 uppercase tracking-widest mb-1.5 block">Full name</label>
-                    <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-                      placeholder="Ahmad Al-Hassan" required autoFocus
-                      className="w-full px-3.5 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[13.5px] text-white/85 outline-none focus:border-white/20 focus:bg-white/[0.06] transition-all placeholder:text-white/15"/>
+              {otpStep ? (
+                /* ── OTP Step ─────────────────────────── */
+                <>
+                  <div className="flex items-center gap-2 mb-5">
+                    <Logo className="w-6 h-6" />
+                    <span className="font-semibold text-[13px] text-white/75">Bobo</span>
                   </div>
-                )}
-                <div>
-                  <label className="text-[11px] font-medium text-white/28 uppercase tracking-widest mb-1.5 block">Email</label>
-                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com" required autoFocus={mode === "login"}
-                    className="w-full px-3.5 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[13.5px] text-white/85 outline-none focus:border-white/20 focus:bg-white/[0.06] transition-all placeholder:text-white/15"/>
-                </div>
-                <div>
-                  <label className="text-[11px] font-medium text-white/28 uppercase tracking-widest mb-1.5 block">Password</label>
-                  <div className="relative">
-                    <input type={showPass ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••" required
-                      className="w-full px-3.5 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[13.5px] text-white/85 outline-none focus:border-white/20 focus:bg-white/[0.06] transition-all placeholder:text-white/15 pr-11"/>
-                    <button type="button" onClick={() => setShowPass(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-white/22 hover:text-white/55 transition-colors">
-                      {showPass ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                      )}
+
+                  {/* Email icon */}
+                  <div className="flex justify-center mb-5">
+                    <div className="w-14 h-14 rounded-2xl bg-white/[0.05] border border-white/[0.08] flex items-center justify-center">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-white/55">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <h2 className="text-[20px] font-semibold text-white mb-1.5 tracking-tight text-center">
+                    Check your email
+                  </h2>
+                  <p className="text-[13px] text-white/32 mb-6 text-center leading-relaxed">
+                    We sent an 8-digit code to<br />
+                    <span className="text-white/55 font-medium">{pendingEmail}</span>
+                  </p>
+
+                  <form onSubmit={handleVerifyOtp}>
+                    <div className="mb-5">
+                      <OtpInput value={otpCode} onChange={setOtpCode} disabled={otpLoading} />
+                    </div>
+
+                    {otpError && (
+                      <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 px-3.5 py-2.5 rounded-lg text-[12.5px] mb-4">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+                          <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                        </svg>
+                        {otpError}
+                      </div>
+                    )}
+
+                    <button type="submit" disabled={otpLoading || otpCode.length !== 8}
+                      className="w-full py-2.5 rounded-full text-[13.5px] font-medium transition-all disabled:opacity-35 active:scale-[0.98] bg-[#E5E5E6] text-[#08090A] hover:bg-white mb-4">
+                      {otpLoading ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                          </svg>
+                          Verifying…
+                        </span>
+                      ) : "Verify email"}
+                    </button>
+                  </form>
+
+                  <div className="text-center">
+                    <p className="text-[12px] text-white/22 mb-1">Didn't receive it?</p>
+                    <button onClick={handleResendOtp} disabled={resendCooldown > 0}
+                      className="text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed text-white/40 hover:text-white/70 disabled:text-white/22">
+                      {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
                     </button>
                   </div>
-                </div>
-
-                {error && (
-                  <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 px-3.5 py-2.5 rounded-lg text-[12.5px]">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
-                      <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-                    </svg>
-                    {error}
+                </>
+              ) : (
+                /* ── Auth Step ─────────────────────────── */
+                <>
+                  <div className="flex items-center gap-2 mb-5">
+                    <Logo className="w-6 h-6" />
+                    <span className="font-semibold text-[13px] text-white/75">Bobo</span>
                   </div>
-                )}
 
-                <button type="submit" disabled={isPending}
-                  className="w-full py-2.5 rounded-full text-[13.5px] font-medium transition-all disabled:opacity-40 active:scale-[0.98] bg-[#E5E5E6] text-[#08090A] hover:bg-white mt-1">
-                  {isPending ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                      </svg>
-                      {mode === "login" ? "Signing in..." : "Creating account..."}
-                    </span>
-                  ) : mode === "login" ? "Sign in" : "Create account"}
-                </button>
-              </form>
+                  <h2 className="text-[22px] font-semibold text-white mb-1 tracking-tight">
+                    {mode === "login" ? "Welcome back" : "Create account"}
+                  </h2>
+                  <p className="text-[13px] text-white/30 mb-5">
+                    {mode === "login" ? "Sign in to continue building" : "Start building with AI for free"}
+                  </p>
 
-              <p className="text-[11px] text-white/15 text-center mt-4 leading-relaxed">
-                By continuing, you agree to our{" "}
-                <a href="#" className="text-white/30 hover:text-white/55 underline underline-offset-2">Terms</a>{" "}
-                and{" "}
-                <a href="#" className="text-white/30 hover:text-white/55 underline underline-offset-2">Privacy Policy</a>
-              </p>
+                  {/* Mode toggle */}
+                  <div className="flex bg-white/[0.04] border border-white/[0.06] rounded-lg p-0.5 mb-5">
+                    {(["login", "register"] as const).map((m) => (
+                      <button key={m} onClick={() => { setMode(m); setError(""); }}
+                        className={cn("flex-1 py-1.5 text-[12.5px] font-medium rounded-md transition-all",
+                          mode === m ? "bg-white/[0.1] text-white/90" : "text-white/35 hover:text-white/60")}>
+                        {m === "login" ? "Sign in" : "Sign up"}
+                      </button>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleSubmit} className="space-y-3.5">
+                    {mode === "register" && (
+                      <div>
+                        <label className="text-[11px] font-medium text-white/28 uppercase tracking-widest mb-1.5 block">Full name</label>
+                        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+                          placeholder="Ahmad Al-Hassan" required autoFocus
+                          className="w-full px-3.5 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[13.5px] text-white/85 outline-none focus:border-white/20 focus:bg-white/[0.06] transition-all placeholder:text-white/15"/>
+                      </div>
+                    )}
+                    <div>
+                      <label className="text-[11px] font-medium text-white/28 uppercase tracking-widest mb-1.5 block">Email</label>
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                        placeholder="you@example.com" required autoFocus={mode === "login"}
+                        className="w-full px-3.5 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[13.5px] text-white/85 outline-none focus:border-white/20 focus:bg-white/[0.06] transition-all placeholder:text-white/15"/>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-white/28 uppercase tracking-widest mb-1.5 block">Password</label>
+                      <div className="relative">
+                        <input type={showPass ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)}
+                          placeholder="••••••••" required
+                          className="w-full px-3.5 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[13.5px] text-white/85 outline-none focus:border-white/20 focus:bg-white/[0.06] transition-all placeholder:text-white/15 pr-11"/>
+                        <button type="button" onClick={() => setShowPass(v => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-white/22 hover:text-white/55 transition-colors">
+                          {showPass ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                          ) : (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {error && (
+                      <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 px-3.5 py-2.5 rounded-lg text-[12.5px]">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+                          <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                        </svg>
+                        {error}
+                      </div>
+                    )}
+
+                    <button type="submit" disabled={isPending}
+                      className="w-full py-2.5 rounded-full text-[13.5px] font-medium transition-all disabled:opacity-40 active:scale-[0.98] bg-[#E5E5E6] text-[#08090A] hover:bg-white mt-1">
+                      {isPending ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                          </svg>
+                          {mode === "login" ? "Signing in..." : "Creating account..."}
+                        </span>
+                      ) : mode === "login" ? "Sign in" : "Create account"}
+                    </button>
+                  </form>
+
+                  <p className="text-[11px] text-white/15 text-center mt-4 leading-relaxed">
+                    By continuing, you agree to our{" "}
+                    <a href="#" className="text-white/30 hover:text-white/55 underline underline-offset-2">Terms</a>{" "}
+                    and{" "}
+                    <a href="#" className="text-white/30 hover:text-white/55 underline underline-offset-2">Privacy Policy</a>
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>

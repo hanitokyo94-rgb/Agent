@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-client-react";
 import { Sidebar } from "@/components/Sidebar";
 import { formatRelativeTime, cn } from "@/lib/utils";
+import { OtpVerifyBanner } from "@/components/OtpVerifyBanner";
 
 const EXAMPLES = [
   "Build a task manager with login and data storage",
@@ -172,6 +173,11 @@ export function Dashboard() {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
+          {/* Email verification banner */}
+          {user && !(user as any).emailVerified && (
+            <OtpVerifyBanner email={user.email} />
+          )}
+
           <div className="max-w-2xl mx-auto px-5 pt-12 pb-20">
 
             {/* Greeting */}
