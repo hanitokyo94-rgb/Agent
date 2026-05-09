@@ -72,3 +72,5 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
+AI_MODEL = "openai/gpt-5.4-nano"
+AI_BASE_URL = "https://ktai.koyeb.app/v1"
