@@ -1890,55 +1890,79 @@ export function AgentChat() {
 
         {/* App Browser Preview Panel — desktop side panel */}
         {showPreviewPanel && previewUrl && !isMobile && (
-          <div className="flex flex-col border-l border-white/[0.06] bg-[#080808] shrink-0 overflow-hidden" style={{ width: 520 }}>
-            {/* Browser chrome */}
-            <div className="flex items-center gap-1 px-2 h-10 bg-white/[0.03] border-b border-white/[0.06] shrink-0">
-              <div className="flex items-center gap-1 mr-1">
+          <div
+            className="fixed z-40 flex flex-col overflow-hidden animate-in fade-in-0 zoom-in-95 duration-200"
+            style={{
+              right: 20,
+              top: 56,
+              bottom: 20,
+              width: 480,
+              borderRadius: 16,
+              boxShadow: "0 32px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.07)",
+            }}
+          >
+            {/* Floating browser chrome — dark frosted glass */}
+            <div
+              className="flex items-center gap-1 px-3 h-10 shrink-0"
+              style={{
+                background: "rgba(18,18,20,0.85)",
+                backdropFilter: "blur(20px)",
+                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "16px 16px 0 0",
+              }}
+            >
+              {/* Traffic lights */}
+              <div className="flex items-center gap-[5px] mr-1.5">
                 <button
                   onClick={() => setShowPreviewPanel(false)}
-                  className="w-3 h-3 rounded-full bg-red-400 hover:bg-red-500 transition-colors flex items-center justify-center group"
+                  className="w-3 h-3 rounded-full bg-[#ff5f57] hover:bg-[#ff453a] transition-colors flex items-center justify-center group"
                   title="Close preview"
                 >
-                  <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="opacity-0 group-hover:opacity-100">
+                  <svg width="5" height="5" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.5)" strokeWidth="3.5" className="opacity-0 group-hover:opacity-100">
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
                 </button>
-                <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                <div className="w-3 h-3 rounded-full bg-green-400" />
+                <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+                <div className="w-3 h-3 rounded-full bg-[#28c840]" />
               </div>
+              {/* Reload */}
               <button
                 onClick={() => setIframeKey((k) => k + 1)}
-                className="p-1 rounded-md hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
+                className="p-1 rounded-md hover:bg-white/10 text-white/35 hover:text-white/70 transition-colors"
                 title="Reload preview"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                   <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
                 </svg>
               </button>
-              <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 mx-1 rounded-lg bg-background border border-border/70 text-[11px] text-muted-foreground font-mono truncate">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-muted-foreground/60">
+              {/* URL bar */}
+              <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 mx-1 rounded-md text-[10.5px] text-white/30 font-mono truncate" style={{ background: "rgba(255,255,255,0.05)" }}>
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-white/20">
                   <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
                   <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
                 </svg>
                 <span className="truncate">{typeof window !== "undefined" ? window.location.host : ""}{previewUrl}</span>
               </div>
+              {/* Open in new tab */}
               <a
                 href={previewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-1 rounded-md hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
+                className="p-1 rounded-md hover:bg-white/10 text-white/35 hover:text-white/70 transition-colors"
                 title="Open in new tab"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                   <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
                   <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
                 </svg>
               </a>
             </div>
+            {/* iframe — no background wrapper so it looks floating */}
             <iframe
               key={iframeKey}
               src={previewUrl}
               className="flex-1 w-full border-none bg-white"
+              style={{ borderRadius: "0 0 16px 16px" }}
               title="App Preview"
               sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox"
             />
