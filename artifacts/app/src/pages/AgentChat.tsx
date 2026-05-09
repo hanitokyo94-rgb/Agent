@@ -1600,7 +1600,7 @@ export function AgentChat() {
               )}
 
               {streamingMessages.length === 0 && !isLoading && (
-                <EmptyState projectName={project?.name} onExample={setInput} />
+                <EmptyState projectName={project?.name} userName={me?.name} onExample={setInput} />
               )}
 
               {streamingMessages.map((msg) => (
@@ -2447,20 +2447,94 @@ function SecretRequestBanner({
 }
 
 // ── Empty state ──────────────────────────────────────────────────────
-function EmptyState({ projectName, onExample }: { projectName?: string; onExample: (v: string) => void }) {
+const QUICK_ACTIONS = [
+  {
+    label: "Build an API",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+      </svg>
+    ),
+    prompt: "Build a REST API with Express + TypeScript",
+  },
+  {
+    label: "Web app",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>
+      </svg>
+    ),
+    prompt: "Create a full-stack web app with React + SQLite",
+  },
+  {
+    label: "Build a bot",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/>
+      </svg>
+    ),
+    prompt: "Build a Telegram bot with command handling",
+  },
+  {
+    label: "CLI tool",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+      </svg>
+    ),
+    prompt: "Create a CLI tool with commander.js",
+  },
+  {
+    label: "Explain code",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    ),
+    prompt: "Explain how JWT authentication works",
+  },
+  {
+    label: "AI agent",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+      </svg>
+    ),
+    prompt: "Build an AI agent with tool calling",
+  },
+];
+
+function EmptyState({ projectName, userName, onExample }: { projectName?: string; userName?: string; onExample: (v: string) => void }) {
+  const firstName = userName?.split(" ")[0];
+
+  // Time-based greeting
+  const hour = new Date().getHours();
+  const timeGreeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const greeting = firstName ? `${timeGreeting}, ${firstName}.` : `${timeGreeting}.`;
+
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <h2 className="text-2xl font-semibold mb-2 tracking-tight">
-        {projectName ? `Working on "${projectName}"` : "What can I help with?"}
-      </h2>
-      <p className="text-sm text-muted-foreground mb-8 max-w-sm">
-        {projectName ? "Describe what you need — I'll build it step by step." : "Ask anything — code, builds, deployments, or answers."}
-      </p>
+    <div className="flex flex-col items-center justify-center min-h-[60dvh] text-center px-4 select-none">
+      {/* Big greeting — Claude.ai style */}
+      <div className="mb-10">
+        <h2 className="text-[clamp(1.8rem,5vw,3rem)] font-black text-white tracking-tight leading-tight mb-2">
+          {greeting}
+        </h2>
+        <p className="text-[clamp(1.1rem,3vw,1.7rem)] font-bold tracking-tight"
+          style={{ background: "linear-gradient(90deg,#f59e0b,#f97316)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          {projectName ? `Let's build "${projectName}"` : "What are we building today?"}
+        </p>
+      </div>
+
+      {/* Quick action chips — Claude.ai category style */}
       <div className="flex flex-wrap gap-2 justify-center max-w-lg">
-        {EXAMPLES.map((ex) => (
-          <button key={ex} onClick={() => onExample(ex)}
-            className="text-xs px-3 py-1.5 rounded-full bg-muted hover:bg-muted/70 text-muted-foreground hover:text-foreground transition-colors border border-border/50">
-            {ex}
+        {QUICK_ACTIONS.map((qa) => (
+          <button
+            key={qa.label}
+            onClick={() => onExample(qa.prompt)}
+            className="flex items-center gap-1.5 text-[12px] font-medium px-4 py-2.5 rounded-full border border-white/[0.1] bg-white/[0.04] text-white/50 hover:text-white/85 hover:bg-white/[0.08] hover:border-white/[0.18] transition-all duration-200 active:scale-95"
+          >
+            <span className="text-white/30">{qa.icon}</span>
+            {qa.label}
           </button>
         ))}
       </div>
